@@ -1,12 +1,19 @@
 import { NavigationContainer } from '@react-navigation/native';
-import TabNavigator from './navigation/TabNavigator';
+import { createStackNavigator } from '@react-navigation/stack';
 import { MascotaProvider } from './Context/MascotaContext';
+import BienvenidaScreen from './screens/BienvenidaScreen';
+import TabNavigator from './navigation/TabNavigator';
+
+const Stack = createStackNavigator();
 
 export default function App() {
   return (
     <MascotaProvider>
       <NavigationContainer>
-        <TabNavigator />
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Bienvenida" component={BienvenidaScreen} />
+          <Stack.Screen name="Main" component={TabNavigator} />
+        </Stack.Navigator>
       </NavigationContainer>
     </MascotaProvider>
   );

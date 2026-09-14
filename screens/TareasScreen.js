@@ -1,54 +1,28 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Modal, TextInput
+  Modal, TextInput, ActivityIndicator
 } from 'react-native';
 import { useFonts, Quicksand_400Regular, Quicksand_600SemiBold, Quicksand_700Bold } from '@expo-google-fonts/quicksand';
 import { Calendar } from 'react-native-calendars';
 import { useMascota } from '../Context/MascotaContext';
+
+const API_URL = 'http://localhost:3001';
 
 const coloresPastel = [
   '#FFD6A5', '#CAFFBF', '#9fc7e9', '#FFC6FF', '#c7f1f7',
   '#FDFFB6', '#FFB5A7', '#D0F4DE', '#E2CFEA',
 ];
 
-const materiasIniciales = [
-  {
-    id: 1,
-    nombre: 'Cálculo',
-    color: '#FFD6A5',
-    tareas: [
-      { id: 1, nombre: 'Resolver problema Punto 45', completada: false, fecha: '2026-04-22' },
-      { id: 2, nombre: 'Resolver problema Punto 15', completada: true, fecha: '2026-04-22' },
-    ]
-  },
-  {
-    id: 2,
-    nombre: 'Historia',
-    color: '#CAFFBF',
-    tareas: [
-      { id: 3, nombre: 'Hacer resumen del libro', completada: false, fecha: '2026-04-23' },
-      { id: 4, nombre: 'Completar test virtual', completada: false, fecha: '2026-04-24' },
-    ]
-  },
-  {
-    id: 3,
-    nombre: 'Arte',
-    color: '#BDE0FE',
-    tareas: [
-      { id: 5, nombre: 'Entregar boceto', completada: false, fecha: '2026-04-25' },
-    ]
-  },
-];
-
 export default function TareasScreen() {
-  const { tema } = useMascota();
+  const { tema, usuario } = useMascota();
 
   const [vistaActiva, setVistaActiva] = useState('lista');
-  const [materias, setMaterias] = useState(materiasIniciales);
-  const [materiasAbiertas, setMateriasAbiertas] = useState([1]);
+  const [materias, setMaterias] = useState([]);
+  const [materiasAbiertas, setMateriasAbiertas] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [diaSeleccionado, setDiaSeleccionado] = useState('');
+  const [cargando, setCargando] = useState(true);
 
   const [nuevaTarea, setNuevaTarea] = useState('');
   const [materiaSeleccionada, setMateriaSeleccionada] = useState(null);
@@ -65,6 +39,35 @@ export default function TareasScreen() {
     Quicksand_700Bold,
   });
 
+  // Cargar materias y tareas al entrar
+  useEffect(() => {
+    if (usuario) cargarMaterias();
+  }, [usuario]);
+
+  const cargarMaterias = async () => {
+    setCargando(true);
+    try {
+      // Traer materias del usuario
+      const resMaterias = await fetch(`${API_URL}/usuarios/${usuario.id}/materias`);
+      const dataMaterias = await resMaterias.json();
+
+      // Por cada materia traer sus tareas
+      const materiasConTareas = await Promise.all(
+        dataMaterias.map(async (materia) => {
+          const resTareas = await fetch(`${API_URL}/materias/${materia.id}/tareas`);
+          const dataTareas = await resTareas.json();
+          return { ...materia, tareas: dataTareas };
+        })
+      );
+
+      setMaterias(materiasConTareas);
+    } catch (error) {
+      console.log('Error al cargar materias:', error);
+    } finally {
+      setCargando(false);
+    }
+  };
+
   if (!fontsLoaded) return null;
 
   const toggleMateria = (id) => {
@@ -75,8 +78,9 @@ export default function TareasScreen() {
     }
   };
 
-  const toggleTarea = (materiaId, tareaId) => {
-    setMaterias(materias.map(materia => {
+  const toggleTarea = async (materiaId, tareaId) => {
+    // Actualizar localmente primero
+    const nuevasMaterias = materias.map(materia => {
       if (materia.id === materiaId) {
         return {
           ...materia,
@@ -89,47 +93,84 @@ export default function TareasScreen() {
         };
       }
       return materia;
-    }));
+    });
+    setMaterias(nuevasMaterias);
+
+    // Buscar la tarea actualizada
+    const materia = nuevasMaterias.find(m => m.id === materiaId);
+    const tarea = materia.tareas.find(t => t.id === tareaId);
+
+    // Guardar en la base de datos
+    try {
+      await fetch(`${API_URL}/tareas/${tareaId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: tarea.nombre,
+          fecha: tarea.fecha,
+          completada: tarea.completada,
+        }),
+      });
+    } catch (error) {
+      console.log('Error al actualizar tarea:', error);
+    }
   };
 
-  const agregarMateria = () => {
+  const agregarMateria = async () => {
     if (!nombreNuevaMateria.trim()) return;
-    const nueva = {
-      id: Date.now(),
-      nombre: nombreNuevaMateria.trim(),
-      color: colorSeleccionado,
-      tareas: [],
-    };
-    setMaterias([...materias, nueva]);
-    setNombreNuevaMateria('');
-    setColorSeleccionado('#FFD6A5');
-    setMostrarFormMateria(false);
-    setMateriaSeleccionada(nueva.id);
+
+    try {
+      const response = await fetch(`${API_URL}/materias`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: nombreNuevaMateria.trim(),
+          color: colorSeleccionado,
+          usuario_id: usuario.id,
+        }),
+      });
+
+      const nueva = await response.json();
+      setMaterias([...materias, { ...nueva, tareas: [] }]);
+      setMateriaSeleccionada(nueva.id);
+      setNombreNuevaMateria('');
+      setColorSeleccionado('#FFD6A5');
+      setMostrarFormMateria(false);
+    } catch (error) {
+      console.log('Error al agregar materia:', error);
+    }
   };
 
-  const agregarTarea = () => {
+  const agregarTarea = async () => {
     if (!nuevaTarea.trim() || !materiaSeleccionada) return;
-    setMaterias(materias.map(materia => {
-      if (materia.id === materiaSeleccionada) {
-        return {
-          ...materia,
-          tareas: [
-            ...materia.tareas,
-            {
-              id: Date.now(),
-              nombre: nuevaTarea.trim(),
-              completada: false,
-              fecha: fechaTarea || new Date().toISOString().split('T')[0],
-            }
-          ]
-        };
-      }
-      return materia;
-    }));
-    setNuevaTarea('');
-    setMateriaSeleccionada(null);
-    setFechaTarea('');
-    setModalVisible(false);
+
+    try {
+      const response = await fetch(`${API_URL}/tareas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: nuevaTarea.trim(),
+          fecha: fechaTarea || new Date().toISOString().split('T')[0],
+          materia_id: materiaSeleccionada,
+        }),
+      });
+
+      const nuevaTareaData = await response.json();
+
+      setMaterias(materias.map(materia => {
+        if (materia.id === materiaSeleccionada) {
+          return { ...materia, tareas: [...materia.tareas, nuevaTareaData] };
+        }
+        return materia;
+      }));
+
+      setNuevaTarea('');
+      setMateriaSeleccionada(null);
+      setFechaTarea('');
+      setModalVisible(false);
+    } catch (error) {
+      console.log('Error al agregar tarea:', error);
+    }
   };
 
   const generarMarcadores = () => {
@@ -139,25 +180,25 @@ export default function TareasScreen() {
         if (tarea.fecha) {
           if (!marcadores[tarea.fecha]) {
             marcadores[tarea.fecha] = { dots: [] };
-        }
+          }
           const yaExiste = marcadores[tarea.fecha].dots.find(d => d.key === materia.nombre);
           if (!yaExiste) {
             marcadores[tarea.fecha].dots.push({
               key: materia.nombre,
-              color: materia.color === '#FFD6A5' ? '#f3a435' :
-                    materia.color === '#CAFFBF' ? '#76d98f' :
-                    materia.color === '#BDE0FE' ? '#68a3e3' :
-                    materia.color === '#FFC6FF' ? '#c178e6' :
-                    materia.color === '#FFB5A7' ? '#e76059' :
-                    materia.color,
+              color: materia.color === '#FFD6A5' ? '#FF9500' :
+                     materia.color === '#CAFFBF' ? '#34C759' :
+                     materia.color === '#BDE0FE' ? '#007AFF' :
+                     materia.color === '#FFC6FF' ? '#AF52DE' :
+                     materia.color === '#FFB5A7' ? '#FF3B30' :
+                     materia.color,
               selectedDotColor: '#fff',
-          });
+            });
+          }
         }
-      }
+      });
     });
-  });
     return marcadores;
-};
+  };
 
   const tareasDelDia = () => {
     if (!diaSeleccionado) return [];
@@ -198,118 +239,130 @@ export default function TareasScreen() {
         </View>
       </View>
 
-      {/* Vista Lista */}
-      {vistaActiva === 'lista' && (
-        <ScrollView style={styles.scroll}>
-          {materias.map(materia => (
-            <View key={materia.id} style={styles.materiaCard}>
-              <TouchableOpacity
-                style={[styles.materiaHeader, { backgroundColor: materia.color }]}
-                onPress={() => toggleMateria(materia.id)}
-              >
-                <Text style={[styles.materiaNombre, { color: tema.texto }]}>{materia.nombre}</Text>
-                <Text style={[styles.materiaFlecha, { color: tema.texto }]}>
-                  {materiasAbiertas.includes(materia.id) ? '▲' : '▼'}
-                </Text>
-              </TouchableOpacity>
+      {/* Cargando */}
+      {cargando ? (
+        <View style={styles.cargandoContainer}>
+          <ActivityIndicator size="large" color={tema.principal} />
+          <Text style={[styles.cargandoTexto, { color: tema.textoSuave }]}>
+            Cargando tus tareas...
+          </Text>
+        </View>
+      ) : (
+        <>
+          {/* Vista Lista */}
+          {vistaActiva === 'lista' && (
+            <ScrollView style={styles.scroll}>
+              {materias.length === 0 ? (
+                <View style={styles.vacioContainer}>
+                  <Text style={styles.vacioEmoji}>📚</Text>
+                  <Text style={[styles.vacioTexto, { color: tema.textoSuave }]}>
+                    No tienes materias aún.{'\n'}¡Agrega una con el botón +!
+                  </Text>
+                </View>
+              ) : (
+                materias.map(materia => (
+                  <View key={materia.id} style={styles.materiaCard}>
+                    <TouchableOpacity
+                      style={[styles.materiaHeader, { backgroundColor: materia.color }]}
+                      onPress={() => toggleMateria(materia.id)}
+                    >
+                      <Text style={[styles.materiaNombre, { color: tema.texto }]}>{materia.nombre}</Text>
+                      <Text style={[styles.materiaFlecha, { color: tema.texto }]}>
+                        {materiasAbiertas.includes(materia.id) ? '▲' : '▼'}
+                      </Text>
+                    </TouchableOpacity>
 
-              {materiasAbiertas.includes(materia.id) && (
-                <View style={styles.tareasLista}>
-                  {materia.tareas.length === 0 ? (
-                    <Text style={[styles.sinTareasLista, { color: tema.textoSuave }]}>No hay tareas aún</Text>
+                    {materiasAbiertas.includes(materia.id) && (
+                      <View style={styles.tareasLista}>
+                        {materia.tareas.length === 0 ? (
+                          <Text style={[styles.sinTareasLista, { color: tema.textoSuave }]}>No hay tareas aún</Text>
+                        ) : (
+                          materia.tareas.map(tarea => (
+                            <TouchableOpacity
+                              key={tarea.id}
+                              style={styles.tareaItem}
+                              onPress={() => toggleTarea(materia.id, tarea.id)}
+                            >
+                              <View style={[styles.tareaCirculo, tarea.completada && { backgroundColor: materia.color }]}>
+                                {tarea.completada && <Text style={[styles.tareaCheck, { color: tema.texto }]}>✓</Text>}
+                              </View>
+                              <Text style={[styles.tareaNombre, { color: tema.texto }, tarea.completada && styles.tareaCompletada]}>
+                                {tarea.nombre}
+                              </Text>
+                            </TouchableOpacity>
+                          ))
+                        )}
+                      </View>
+                    )}
+                  </View>
+                ))
+              )}
+              <View style={{ height: 100 }} />
+            </ScrollView>
+          )}
+
+          {/* Vista Calendario */}
+          {vistaActiva === 'calendario' && (
+            <ScrollView style={styles.scroll}>
+              <Calendar
+                markingType='multi-dot'
+                markedDates={generarMarcadores()}
+                onDayPress={(day) => setDiaSeleccionado(day.dateString)}
+                theme={{
+                  backgroundColor: tema.suave,
+                  calendarBackground: tema.suave,
+                  textSectionTitleColor: tema.textoSuave,
+                  selectedDayBackgroundColor: tema.principal,
+                  selectedDayTextColor: '#fff',
+                  todayTextColor: tema.principal,
+                  dayTextColor: tema.texto,
+                  arrowColor: tema.principal,
+                  monthTextColor: tema.texto,
+                  textDayFontFamily: 'Quicksand_600SemiBold',
+                  textMonthFontFamily: 'Quicksand_700Bold',
+                  textDayHeaderFontFamily: 'Quicksand_600SemiBold',
+                  dotStyle: {
+                    width: 8,
+                    height: 8,
+                    borderRadius: 4,
+                    marginTop: 2,
+                  },
+                }}
+              />
+
+              {diaSeleccionado !== '' && (
+                <View style={styles.tareasDelDia}>
+                  <Text style={[styles.diaSeleccionadoTexto, { color: tema.texto }]}>
+                    Tareas del {diaSeleccionado}
+                  </Text>
+                  {tareasDelDia().length === 0 ? (
+                    <Text style={[styles.sinTareas, { color: tema.textoSuave }]}>No hay tareas este día</Text>
                   ) : (
-                    materia.tareas.map(tarea => (
-                      <TouchableOpacity
-                        key={tarea.id}
-                        style={styles.tareaItem}
-                        onPress={() => toggleTarea(materia.id, tarea.id)}
-                      >
-                        <View style={[styles.tareaCirculo, tarea.completada && { backgroundColor: materia.color }]}>
-                          {tarea.completada && <Text style={[styles.tareaCheck, { color: tema.texto }]}>✓</Text>}
+                    tareasDelDia().map(tarea => (
+                      <View key={tarea.id} style={styles.tareaCalendario}>
+                        <View style={[styles.tareaCalendarioPunto, { backgroundColor: tarea.colorMateria }]} />
+                        <View>
+                          <Text style={[styles.tareaCalendarioNombre, { color: tema.texto }]}>{tarea.nombre}</Text>
+                          <Text style={[styles.tareaCalendarioMateria, { color: tema.textoSuave }]}>{tarea.nombreMateria}</Text>
                         </View>
-                        <Text style={[styles.tareaNombre, { color: tema.texto }, tarea.completada && styles.tareaCompletada]}>
-                          {tarea.nombre}
-                        </Text>
-                      </TouchableOpacity>
+                      </View>
                     ))
                   )}
                 </View>
               )}
-            </View>
-          ))}
-          <View style={{ height: 100 }} />
-        </ScrollView>
-      )}
-
-      {/* Vista Calendario */}
-      {vistaActiva === 'calendario' && (
-        <ScrollView style={styles.scroll}>
-          <Calendar
-            markingType='multi-dot'
-            markedDates={generarMarcadores()}
-            onDayPress={(day) => setDiaSeleccionado(day.dateString)}
-            theme={{
-              backgroundColor: tema.suave,
-              calendarBackground: tema.suave,
-              textSectionTitleColor: tema.textoSuave,
-              selectedDayBackgroundColor: tema.principal,
-              selectedDayTextColor: '#fff',
-              todayTextColor: tema.principal,
-              dayTextColor: tema.texto,
-              arrowColor: tema.principal,
-              monthTextColor: tema.texto,
-              textDayFontFamily: 'Quicksand_600SemiBold',
-              textMonthFontFamily: 'Quicksand_700Bold',
-              textDayHeaderFontFamily: 'Quicksand_600SemiBold',
-              dotStyle: {
-                width: 8,
-                height: 8,
-                borderRadius: 4,
-                marginTop: 2,
-              },
-            }}
-          />
-
-          {diaSeleccionado !== '' && (
-            <View style={styles.tareasDelDia}>
-              <Text style={[styles.diaSeleccionadoTexto, { color: tema.texto }]}>
-                Tareas del {diaSeleccionado}
-              </Text>
-              {tareasDelDia().length === 0 ? (
-                <Text style={[styles.sinTareas, { color: tema.textoSuave }]}>No hay tareas este día</Text>
-              ) : (
-                tareasDelDia().map(tarea => (
-                  <View key={tarea.id} style={styles.tareaCalendario}>
-                    <View style={[styles.tareaCalendarioPunto, { backgroundColor: tarea.colorMateria }]} />
-                    <View>
-                      <Text style={[styles.tareaCalendarioNombre, { color: tema.texto }]}>{tarea.nombre}</Text>
-                      <Text style={[styles.tareaCalendarioMateria, { color: tema.textoSuave }]}>{tarea.nombreMateria}</Text>
-                    </View>
-                  </View>
-                ))
-              )}
-            </View>
+              <View style={{ height: 100 }} />
+            </ScrollView>
           )}
-          <View style={{ height: 100 }} />
-        </ScrollView>
+        </>
       )}
 
       {/* Botón + flotante */}
-      {/* Espacio reservado para el botón + */}
-      <View style={styles.zonaBotonAgregar}>
-        <TouchableOpacity 
-          style={[
-            styles.botonAgregar, 
-            { 
-              backgroundColor: tema.principal, 
-              shadowColor: tema.principal 
-            }
-          ]} 
-          onPress={() => setModalVisible(true)}
-        >
-          <Text style={styles.botonAgregarTexto}>+</Text>
-        </TouchableOpacity>
-      </View>
+      <TouchableOpacity
+        style={[styles.botonAgregar, { backgroundColor: tema.principal, shadowColor: tema.principal }]}
+        onPress={() => setModalVisible(true)}
+      >
+        <Text style={styles.botonAgregarTexto}>+</Text>
+      </TouchableOpacity>
 
       {/* Modal formulario */}
       <Modal
@@ -491,6 +544,31 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 24,
   },
+  cargandoContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  cargandoTexto: {
+    fontFamily: 'Quicksand_400Regular',
+    fontSize: 14,
+  },
+  vacioContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 80,
+    gap: 12,
+  },
+  vacioEmoji: {
+    fontSize: 48,
+  },
+  vacioTexto: {
+    fontFamily: 'Quicksand_400Regular',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
   materiaCard: {
     marginBottom: 12,
     borderRadius: 14,
@@ -592,14 +670,10 @@ const styles = StyleSheet.create({
     fontFamily: 'Quicksand_400Regular',
     fontSize: 11,
   },
-  zonaBotonAgregar: {
-    height: 90,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-},
-
   botonAgregar: {
+    position: 'absolute',
+    bottom: 24,
+    right: 24,
     width: 56,
     height: 56,
     borderRadius: 28,
@@ -608,15 +682,14 @@ const styles = StyleSheet.create({
     elevation: 6,
     shadowOpacity: 0.4,
     shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },  
-},
-
+    shadowOffset: { width: 0, height: 4 },
+  },
   botonAgregarTexto: {
     fontSize: 28,
     color: '#fff',
     fontWeight: '300',
     marginTop: -2,
-},
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',

@@ -1,31 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Animated,
-  Alert,
-  BackHandler
+View, Text, StyleSheet, TouchableOpacity, Animated, Alert, BackHandler, AppState
 } from 'react-native';
-import {
-  useFonts,
-  Quicksand_400Regular,
-  Quicksand_600SemiBold,
-  Quicksand_700Bold
-} from '@expo-google-fonts/quicksand';
+import { useFonts, Quicksand_400Regular, Quicksand_600SemiBold, Quicksand_700Bold } from '@expo-google-fonts/quicksand';
 import { Audio } from 'expo-av';
 import { useFocusEffect } from '@react-navigation/native';
 import { useMascota } from '../Context/MascotaContext';
 
-const TIEMPO_POMODORO = 1 * 60; // 1 minuto para pruebas
-const TIEMPO_BREAK = 5 * 60;    // 5 minutos de descanso
+const TIEMPO_POMODORO = 25 * 60;
+const TIEMPO_BREAK = 5 * 60;
 
 export default function TimerScreen() {
   const [enBreak, setEnBreak] = useState(false);
   const [segundos, setSegundos] = useState(TIEMPO_POMODORO);
   const [corriendo, setCorriendo] = useState(false);
-
   const { mascota, tema, completarPomodoro } = useMascota();
 
   const mascotaAnim = useRef(new Animated.Value(1)).current;
@@ -33,16 +21,29 @@ export default function TimerScreen() {
   const enBreakRef = useRef(false);
   const terminoCicloRef = useRef(false);
 
+  // Para AppState — timestamp
+  const inicioTimestampRef = useRef(null);   // hora exacta en que inició el ciclo
+  const segundosAlSalirRef = useRef(null);   // segundos que quedaban al salir
+  const appStateRef = useRef(AppState.currentState);
+  const corriendoRef = useRef(false);        // ref espejo de corriendo para usarlo dentro del listener
+
   const [fontsLoaded] = useFonts({
     Quicksand_400Regular,
     Quicksand_600SemiBold,
     Quicksand_700Bold,
   });
 
-  // =====================================================
-  // ANIMACIÓN DE LA MASCOTA
-  // =====================================================
+  // Mantener corriendoRef sincronizado con corriendo
+  useEffect(() => {
+    corriendoRef.current = corriendo;
 
+    // Guardar timestamp cuando inicia el timer
+    if (corriendo) {
+      inicioTimestampRef.current = Date.now();
+    }
+  }, [corriendo]);
+
+  // Animación mascota
   useEffect(() => {
     if (corriendo) {
       Animated.loop(
@@ -65,516 +66,275 @@ export default function TimerScreen() {
     }
   }, [corriendo]);
 
-
-  // =====================================================
-  // LÓGICA DEL TIMER
-  // =====================================================
-
+  // Lógica del timer con timestamp
   useEffect(() => {
-    if (!corriendo) {
+    if (corriendo) {
+      intervaloRef.current = setInterval(() => {
+        setSegundos(prev => {
+          if (prev <= 1) {
+            terminoCicloRef.current = true;
+            if (!enBreakRef.current) {
+              enBreakRef.current = true;
+              setEnBreak(true);
+              inicioTimestampRef.current = Date.now();
+              return TIEMPO_BREAK;
+            } else {
+              enBreakRef.current = false;
+              setEnBreak(false);
+              inicioTimestampRef.current = Date.now();
+              return TIEMPO_POMODORO;
+            }
+          }
+          return prev - 1;
+        });
+
+        if (terminoCicloRef.current) {
+          terminoCicloRef.current = false;
+          reproducirSonido();
+          completarPomodoro();
+        }
+      }, 1000);
+    } else {
       clearInterval(intervaloRef.current);
-      return;
     }
 
-    intervaloRef.current = setInterval(() => {
-
-      setSegundos(prev => {
-
-        // Si todavía queda tiempo
-        if (prev > 1) {
-          return prev - 1;
-        }
-
-        // ================================================
-        // TERMINÓ EL POMODORO
-        // ================================================
-
-        if (!enBreakRef.current) {
-          terminoCicloRef.current = true;
-
-          enBreakRef.current = true;
-          setEnBreak(true);
-
-          return TIEMPO_BREAK;
-        }
-
-        // ================================================
-        // TERMINÓ EL BREAK
-        // ================================================
-
-        terminoCicloRef.current = true;
-
-        enBreakRef.current = false;
-        setEnBreak(false);
-
-        return TIEMPO_POMODORO;
-      });
-
-    }, 1000);
-
-    return () => {
-      clearInterval(intervaloRef.current);
-    };
-
+    return () => clearInterval(intervaloRef.current);
   }, [corriendo]);
 
-
-  // =====================================================
-  // ACCIONES AL TERMINAR UN CICLO
-  // =====================================================
-
+  // AppState — detectar salida y regreso
   useEffect(() => {
-    if (terminoCicloRef.current) {
+    const subscription = AppState.addEventListener('change', nextAppState => {
 
-      terminoCicloRef.current = false;
-
-      reproducirSonido();
-
-      // Solo cuenta un Pomodoro cuando termina
-      // el período de concentración, no el break.
-      if (enBreakRef.current) {
-        completarPomodoro();
+      // App pasa a background
+      if (appStateRef.current === 'active' && nextAppState === 'background') {
+        if (corriendoRef.current) {
+          // Guardar segundos exactos que quedaban
+          segundosAlSalirRef.current = Date.now();
+          // Pausar el timer
+          setCorriendo(false);
+          clearInterval(intervaloRef.current);
+        }
       }
-    }
 
-  }, [segundos]);
+      // App regresa a foreground
+      if (appStateRef.current === 'background' && nextAppState === 'active') {
+        if (segundosAlSalirRef.current !== null) {
+          // Calcular cuánto tiempo estuvo fuera
+          const segundosFuera = Math.floor((Date.now() - segundosAlSalirRef.current) / 1000);
+          const minutosFuera = Math.floor(segundosFuera / 60);
+          const segundosExtra = segundosFuera % 60;
 
+          const tiempoFueraTexto = minutosFuera > 0
+            ? `${minutosFuera} min ${segundosExtra} seg`
+            : `${segundosExtra} seg`;
 
-  // =====================================================
-  // BOTÓN ATRÁS DE ANDROID
-  // =====================================================
+          segundosAlSalirRef.current = null;
 
+          // Mostrar alerta de interrupción
+          Alert.alert(
+            '⚠️ Sesión interrumpida',
+            `Saliste de PomoPet durante tu Pomodoro.\nEstuviste fuera ${tiempoFueraTexto}.\n\n¿Qué quieres hacer?`,
+            [
+              {
+                text: '🔄 Reiniciar Pomodoro',
+                style: 'destructive',
+                onPress: reiniciar,
+              },
+              {
+                text: '▶️ Continuar',
+                onPress: () => setCorriendo(true),
+              },
+            ]
+          );
+        }
+      }
+
+      appStateRef.current = nextAppState;
+    });
+
+    return () => subscription.remove();
+  }, []);
+
+  // Alerta botón atrás Android
   useFocusEffect(() => {
-
     const onBackPress = () => {
-
-      if (corriendo) {
-
+      if (corriendoRef.current) {
         Alert.alert(
           '¿Salir de la sesión?',
-          'Si sales, perderás tu progreso de concentración actual.',
+          'Si sales, tu Pomodoro se pausará.',
           [
-            {
-              text: 'Quedarse',
-              style: 'cancel'
-            },
-            {
-              text: 'Salir',
-              style: 'destructive',
-              onPress: () => reiniciar()
-            },
+            { text: 'Quedarse', style: 'cancel' },
+            { text: 'Salir', style: 'destructive', onPress: () => reiniciar() },
           ]
         );
-
         return true;
       }
-
       return false;
     };
 
-    const subscription = BackHandler.addEventListener(
-      'hardwareBackPress',
-      onBackPress
-    );
-
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
     return () => subscription.remove();
-
   });
 
-
-  // =====================================================
-  // SONIDO
-  // =====================================================
-
   const reproducirSonido = async () => {
-
     try {
-
       const { sound } = await Audio.Sound.createAsync(
         require('../assets/done.mp3')
       );
-
       await sound.playAsync();
-
     } catch (error) {
-
       console.log('Error al reproducir sonido', error);
-
     }
   };
 
-
-  // =====================================================
-  // FORMATEAR TIEMPO
-  // =====================================================
-
   const formatearTiempo = (seg) => {
-
     const minutos = Math.floor(seg / 60);
     const segundosRestantes = seg % 60;
-
     return `${String(minutos).padStart(2, '0')}:${String(segundosRestantes).padStart(2, '0')}`;
-
   };
-
-
-  // =====================================================
-  // PROGRESO
-  // =====================================================
 
   const progreso = enBreak
     ? 1 - segundos / TIEMPO_BREAK
     : 1 - segundos / TIEMPO_POMODORO;
 
-
-  // =====================================================
-  // REINICIAR
-  // =====================================================
-
   const reiniciar = () => {
-
     clearInterval(intervaloRef.current);
-
     setCorriendo(false);
-
     enBreakRef.current = false;
-    terminoCicloRef.current = false;
-
     setEnBreak(false);
-
     setSegundos(TIEMPO_POMODORO);
-
+    inicioTimestampRef.current = null;
+    segundosAlSalirRef.current = null;
   };
-
-
-  // =====================================================
-  // ESPERAR FUENTES
-  // =====================================================
 
   if (!fontsLoaded) return null;
 
-
-  // =====================================================
-  // INTERFAZ
-  // =====================================================
-
   return (
-
-    <View
-      style={[
-        styles.container,
-        {
-          backgroundColor: enBreak
-            ? tema.medio
-            : tema.suave
-        }
-      ]}
-    >
+    <View style={[
+      styles.container,
+      { backgroundColor: enBreak ? tema.medio : tema.suave }
+    ]}>
 
       {/* Título */}
-
-      <Text
-        style={[
-          styles.titulo,
-          {
-            color: tema.texto
-          }
-        ]}
-      >
+      <Text style={[styles.titulo, { color: tema.texto }]}>
         Pomodoro Timer
       </Text>
-
-
-      <Text
-        style={[
-          styles.subtitulo,
-          {
-            color: tema.textoSuave
-          }
-        ]}
-      >
-        {enBreak
-          ? '¡Tómate un descanso!'
-          : 'Concentración en progreso'}
+      <Text style={[styles.subtitulo, { color: tema.textoSuave }]}>
+        {enBreak ? '¡Tómate un descanso!' : 'Concentración en progreso'}
       </Text>
 
-
-      {/* =================================================
-          CÍRCULO DEL TIMER
-      ================================================= */}
-
+      {/* Círculo del timer */}
       <View style={styles.circuloContainer}>
-
-        {/* Fondo del círculo */}
-
-        <View
-          style={[
-            styles.circuloFondo,
-            {
-              backgroundColor: enBreak
-                ? tema.suave
-                : tema.medio,
-
-              borderColor: tema.principal,
-            }
-          ]}
-        />
-
-
-        {/* Mascota */}
+        <View style={[
+          styles.circuloFondo,
+          {
+            backgroundColor: enBreak ? tema.suave : tema.medio,
+            borderColor: tema.principal,
+          }
+        ]} />
 
         <Animated.Image
-          source={
-            enBreak
-              ? mascota.imagenes.break
-              : mascota.imagenes.study
-          }
-
+          source={enBreak ? mascota.imagenes.break : mascota.imagenes.study}
           style={[
             styles.mascotaImagen,
-            {
-              transform: [
-                {
-                  scale: mascotaAnim
-                }
-              ]
-            }
+            { transform: [{ scale: mascotaAnim }] }
           ]}
         />
 
-
-        {/* Tiempo */}
-
-        <Text
-          style={[
-            styles.tiempo,
-            {
-              color: tema.texto
-            }
-          ]}
-        >
+        <Text style={[styles.tiempo, { color: tema.texto }]}>
           {formatearTiempo(segundos)}
         </Text>
 
-
-        {/* Barra de progreso */}
-
-        <View
-          style={[
-            styles.progresoBarra,
-            {
-              borderColor: tema.principal,
-              opacity: 0.3 + progreso * 0.7,
-            }
-          ]}
-        />
-
+        <View style={[
+          styles.progresoBarra,
+          {
+            borderColor: tema.principal,
+            opacity: 0.3 + progreso * 0.7,
+          }
+        ]} />
       </View>
 
-
-      {/* =================================================
-          ESTADO
-      ================================================= */}
-
-      <Text
-        style={[
-          styles.estadoTexto,
-          {
-            color: tema.textoSuave
-          }
-        ]}
-      >
-        {
-          enBreak
-            ? '☕ Break en progreso'
-            : corriendo
-              ? '🎯 Concentración en progreso'
-              : '¡Lista para comenzar!'
-        }
+      {/* Estado */}
+      <Text style={[styles.estadoTexto, { color: tema.textoSuave }]}>
+        {enBreak ? '☕ Break en progreso' : corriendo ? '🎯 Concentración en progreso' : '¡Lista para comenzar!'}
       </Text>
 
-
-      {/* =================================================
-          BOTONES
-      ================================================= */}
-
+      {/* Botones */}
       <View style={styles.botonesRow}>
-
-        {/* Botón iniciar / pausar */}
-
         <TouchableOpacity
           style={[
             styles.btnPrincipal,
-            {
-              backgroundColor: tema.principal,
-              shadowColor: tema.principal
-            }
+            { backgroundColor: tema.principal, shadowColor: tema.principal }
           ]}
-
           onPress={() => setCorriendo(!corriendo)}
         >
-
           <Text style={styles.btnPrincipalTexto}>
-
-            {
-              corriendo
-                ? 'Pausar'
-                : segundos === (
-                    enBreak
-                      ? TIEMPO_BREAK
-                      : TIEMPO_POMODORO
-                  )
-                  ? 'Iniciar'
-                  : 'Reanudar'
-            }
-
+            {corriendo ? 'Pausar' : segundos === (enBreak ? TIEMPO_BREAK : TIEMPO_POMODORO) ? 'Iniciar' : 'Reanudar'}
           </Text>
-
         </TouchableOpacity>
-
-
-        {/* Botón reiniciar */}
 
         <TouchableOpacity
           style={[
             styles.btnReiniciar,
-            {
-              backgroundColor: tema.medio,
-              borderColor: tema.principal
-            }
+            { backgroundColor: tema.medio, borderColor: tema.principal }
           ]}
-
           onPress={() => {
-
             if (corriendo) {
-
               Alert.alert(
                 '¿Reiniciar sesión?',
                 'Perderás tu progreso actual.',
                 [
-                  {
-                    text: 'Cancelar',
-                    style: 'cancel'
-                  },
-
-                  {
-                    text: 'Reiniciar',
-                    style: 'destructive',
-                    onPress: reiniciar
-                  },
+                  { text: 'Cancelar', style: 'cancel' },
+                  { text: 'Reiniciar', style: 'destructive', onPress: reiniciar },
                 ]
               );
-
             } else {
-
               reiniciar();
-
             }
-
           }}
         >
-
-          <Text
-            style={[
-              styles.btnReiniciarTexto,
-              {
-                color: tema.textoSuave
-              }
-            ]}
-          >
-            ↺
-          </Text>
-
+          <Text style={[styles.btnReiniciarTexto, { color: tema.textoSuave }]}>↺</Text>
         </TouchableOpacity>
-
       </View>
 
-
-      {/* =================================================
-          INDICADOR DE CICLO
-      ================================================= */}
-
+      {/* Indicador de ciclo */}
       <View style={styles.cicloIndicador}>
-
-        {/* Punto Pomodoro */}
-
-        <View
-          style={[
-            styles.cicloPunto,
-            {
-              backgroundColor: tema.medio,
-              borderColor: tema.principal
-            },
-
-            !enBreak && {
-              backgroundColor: tema.principal
-            }
-          ]}
-        />
-
-
-        <Text
-          style={[
-            styles.cicloTexto,
-            {
-              color: tema.textoSuave
-            }
-          ]}
-        >
-          {enBreak
-            ? 'Break 5 min'
-            : 'Pomodoro 1 min'}
+        <View style={[
+          styles.cicloPunto,
+          { backgroundColor: tema.medio, borderColor: tema.principal },
+          !enBreak && { backgroundColor: tema.principal }
+        ]} />
+        <Text style={[styles.cicloTexto, { color: tema.textoSuave }]}>
+          {enBreak ? 'Break 5 min' : 'Pomodoro 25 min'}
         </Text>
-
-
-        {/* Punto Break */}
-
-        <View
-          style={[
-            styles.cicloPunto,
-            {
-              backgroundColor: tema.medio,
-              borderColor: tema.principal
-            },
-
-            enBreak && {
-              backgroundColor: tema.principal
-            }
-          ]}
-        />
-
+        <View style={[
+          styles.cicloPunto,
+          { backgroundColor: tema.medio, borderColor: tema.principal },
+          enBreak && { backgroundColor: tema.principal }
+        ]} />
       </View>
 
     </View>
   );
 }
 
-
-// =====================================================
-// ESTILOS
-// =====================================================
-
 const styles = StyleSheet.create({
-
   container: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
   },
-
   titulo: {
     fontFamily: 'Quicksand_700Bold',
     fontSize: 26,
     marginBottom: 6,
   },
-
   subtitulo: {
     fontFamily: 'Quicksand_400Regular',
     fontSize: 14,
     marginBottom: 40,
   },
-
   circuloContainer: {
     width: 240,
     height: 240,
@@ -582,7 +342,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 30,
   },
-
   circuloFondo: {
     position: 'absolute',
     width: 240,
@@ -590,7 +349,6 @@ const styles = StyleSheet.create({
     borderRadius: 120,
     borderWidth: 6,
   },
-
   mascotaImagen: {
     width: 140,
     height: 140,
@@ -598,14 +356,12 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 20,
   },
-
   tiempo: {
     fontFamily: 'Quicksand_700Bold',
     fontSize: 48,
     position: 'absolute',
     bottom: 20,
   },
-
   progresoBarra: {
     position: 'absolute',
     width: 240,
@@ -613,39 +369,31 @@ const styles = StyleSheet.create({
     borderRadius: 120,
     borderWidth: 6,
   },
-
   estadoTexto: {
     fontFamily: 'Quicksand_600SemiBold',
     fontSize: 15,
     marginBottom: 8,
   },
-
   botonesRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16,
     marginTop: 30,
   },
-
   btnPrincipal: {
     paddingHorizontal: 48,
     paddingVertical: 16,
     borderRadius: 30,
     shadowOpacity: 0.4,
     shadowRadius: 8,
-    shadowOffset: {
-      width: 0,
-      height: 4
-    },
+    shadowOffset: { width: 0, height: 4 },
     elevation: 6,
   },
-
   btnPrincipalTexto: {
     fontFamily: 'Quicksand_700Bold',
     fontSize: 18,
     color: '#fff',
   },
-
   btnReiniciar: {
     width: 50,
     height: 50,
@@ -654,28 +402,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
   },
-
   btnReiniciarTexto: {
     fontSize: 24,
   },
-
   cicloIndicador: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     marginTop: 24,
   },
-
   cicloPunto: {
     width: 10,
     height: 10,
     borderRadius: 5,
     borderWidth: 1,
   },
-
   cicloTexto: {
     fontFamily: 'Quicksand_600SemiBold',
     fontSize: 13,
   },
-
 });

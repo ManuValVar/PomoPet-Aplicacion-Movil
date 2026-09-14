@@ -1,12 +1,22 @@
+import { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, Dimensions } from 'react-native';
 import { useFonts, Quicksand_400Regular, Quicksand_600SemiBold, Quicksand_700Bold } from '@expo-google-fonts/quicksand';
 import { LineChart } from 'react-native-chart-kit';
 import { useMascota } from '../Context/MascotaContext';
+import { useFocusEffect } from '@react-navigation/native';
 
+const API_URL = 'http://localhost:3001';
 const screenWidth = Dimensions.get('window').width;
 
 export default function HomeScreen() {
-  const { mascota, tema } = useMascota();
+  const { mascota, tema, usuario } = useMascota();
+
+  const [pomodorosHoy, setPomodorosHoy] = useState(0);
+  const [pomodorosTotal, setPomodorosTotal] = useState(0);
+  const [materiasRecientes, setMateriasRecientes] = useState([]);
+  const [progresoSemanal, setProgresoSemanal] = useState([0, 0, 0, 0, 0, 0, 0]);
+  const [tareasCompletadas, setTareasCompletadas] = useState(0);
+  const [tareasTotal, setTareasTotal] = useState(0);
 
   const [fontsLoaded] = useFonts({
     Quicksand_400Regular,
@@ -14,7 +24,51 @@ export default function HomeScreen() {
     Quicksand_700Bold,
   });
 
+  // Recargar datos cada vez que el usuario entra al HomeScreen
+  useFocusEffect(
+    useCallback(() => {
+      if (usuario) cargarDatos();
+    }, [usuario])
+  );
+
+  const cargarDatos = async () => {
+    try {
+      // Pomodoros totales
+      const resPomodoros = await fetch(`${API_URL}/usuarios/${usuario.id}/pomodoros`);
+      const dataPomodoros = await resPomodoros.json();
+      setPomodorosTotal(dataPomodoros.total);
+
+      // Pomodoros de hoy
+      const resHoy = await fetch(`${API_URL}/usuarios/${usuario.id}/pomodoros/hoy`);
+      const dataHoy = await resHoy.json();
+      setPomodorosHoy(dataHoy.total);
+
+      // Progreso semanal
+      const resSemanal = await fetch(`${API_URL}/usuarios/${usuario.id}/pomodoros/semanal`);
+      const dataSemanal = await resSemanal.json();
+      setProgresoSemanal(dataSemanal);
+
+      // Materias recientes
+      const resMaterias = await fetch(`${API_URL}/usuarios/${usuario.id}/materias`);
+      const dataMaterias = await resMaterias.json();
+      setMateriasRecientes(dataMaterias.slice(0, 3));
+
+      // Tareas
+      const resTareas = await fetch(`${API_URL}/usuarios/${usuario.id}/tareas/stats`);
+      const dataTareas = await resTareas.json();
+      setTareasCompletadas(dataTareas.completadas);
+      setTareasTotal(dataTareas.total);
+
+    } catch (error) {
+      console.log('Error al cargar datos del home:', error);
+    }
+  };
+
   if (!fontsLoaded) return null;
+
+  const porcentajeObjetivos = tareasTotal > 0
+    ? Math.round((tareasCompletadas / tareasTotal) * 100)
+    : 0;
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: tema.suave }]}>
@@ -31,37 +85,45 @@ export default function HomeScreen() {
           />
         </View>
 
-        <Text style={[styles.saludo, { color: tema.texto }]}>Hola, Manu!</Text>
-        <Text style={[styles.pregunta, { color: tema.textoSuave }]}>¿Lista para concentrarte?</Text>
+        <Text style={[styles.saludo, { color: tema.texto }]}>
+          Hola, {usuario?.nombre || 'estudiante'}!
+        </Text>
+        <Text style={[styles.pregunta, { color: tema.textoSuave }]}>
+          ¿Lista para concentrarte?
+        </Text>
       </View>
 
       {/* Stats del día */}
       <View style={styles.statsRow}>
         <View style={styles.statCard}>
           <Text style={[styles.statLabel, { color: tema.textoSuave }]}>Hoy:</Text>
-          <Text style={[styles.statValor, { color: tema.texto }]}>2/4 Pomodoros</Text>
+          <Text style={[styles.statValor, { color: tema.texto }]}>
+            {pomodorosHoy} Pomodoros
+          </Text>
         </View>
         <View style={styles.statCard}>
           <Text style={[styles.statLabel, { color: tema.textoSuave }]}>Objetivos:</Text>
-          <Text style={[styles.statValor, { color: tema.texto }]}>60% Hecho</Text>
+          <Text style={[styles.statValor, { color: tema.texto }]}>
+            {porcentajeObjetivos}% Hecho
+          </Text>
         </View>
       </View>
 
       {/* Sesiones recientes */}
-      <View style={styles.seccion}>
-        <Text style={[styles.seccionTitulo, { color: tema.texto }]}>Sesiones de estudio recientes:</Text>
-        <View style={styles.etiquetasRow}>
-          <View style={[styles.etiqueta, { backgroundColor: '#FFD6A5' }]}>
-            <Text style={[styles.etiquetaTexto, { color: tema.texto }]}>Cálculo</Text>
-          </View>
-          <View style={[styles.etiqueta, { backgroundColor: '#CAFFBF' }]}>
-            <Text style={[styles.etiquetaTexto, { color: tema.texto }]}>Historia</Text>
-          </View>
-          <View style={[styles.etiqueta, { backgroundColor: '#BDE0FE' }]}>
-            <Text style={[styles.etiquetaTexto, { color: tema.texto }]}>Arte</Text>
+      {materiasRecientes.length > 0 && (
+        <View style={styles.seccion}>
+          <Text style={[styles.seccionTitulo, { color: tema.texto }]}>
+            Sesiones de estudio recientes:
+          </Text>
+          <View style={styles.etiquetasRow}>
+            {materiasRecientes.map(materia => (
+              <View key={materia.id} style={[styles.etiqueta, { backgroundColor: materia.color }]}>
+                <Text style={[styles.etiquetaTexto, { color: tema.texto }]}>{materia.nombre}</Text>
+              </View>
+            ))}
           </View>
         </View>
-      </View>
+      )}
 
       {/* Gráfico de progreso semanal */}
       <View style={styles.seccion}>
@@ -72,7 +134,7 @@ export default function HomeScreen() {
               labels: ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'],
               datasets: [
                 {
-                  data: [2, 4, 3, 5, 2, 6, 4],
+                  data: progresoSemanal.length === 7 ? progresoSemanal : [0, 0, 0, 0, 0, 0, 0],
                   color: () => tema.principal,
                   strokeWidth: 2,
                 },
@@ -112,15 +174,12 @@ export default function HomeScreen() {
       </View>
 
       <View style={{ height: 40 }} />
-
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
   header: {
     alignItems: 'center',
     paddingTop: 60,
@@ -219,9 +278,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  grafico: {
-    borderRadius: 12,
-  },
+  grafico: { borderRadius: 12 },
   graficoSubtitulo: {
     fontSize: 11,
     fontFamily: 'Quicksand_400Regular',
