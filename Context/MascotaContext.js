@@ -1,4 +1,5 @@
 import { createContext, useContext, useState } from 'react';
+import { Alert } from 'react-native';
 
 export const temas = {
   Osito: {
@@ -107,7 +108,7 @@ export const mascotasData = {
   },
   Perrito: {
     nombre: 'Perrito',
-    nivelRequerido: 6,
+    nivelRequerido: 1,
     imagenes: {
       home: require('../assets/mascotas/Perrito_Home.png'),
       study: require('../assets/mascotas/Perrito_Study.png'),
@@ -159,7 +160,7 @@ export function MascotaProvider({ children }) {
       // Guardar en la base de datos
       if (usuario) {
         try {
-          await fetch(`http://192.168.1.4:3001/usuarios/${usuario.id}/mascota`, {
+          await fetch(`http://192.168.1.6:3001/usuarios/${usuario.id}/mascota`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ mascota_seleccionada: nombreMascota }),
@@ -172,31 +173,60 @@ export function MascotaProvider({ children }) {
   };
 
   const completarPomodoro = async () => {
-    const nuevosPomodoros = pomodorosCompletados + 1;
-    setPomodorosCompletados(nuevosPomodoros);
+  const nuevosPomodoros = pomodorosCompletados + 1;
+  setPomodorosCompletados(nuevosPomodoros);
 
-    // Subir de nivel cada 5 pomodoros
-    const nuevoNivel = Math.floor(nuevosPomodoros / 5) + 1;
-    if (nuevoNivel > nivelUsuario) {
-      setNivelUsuario(nuevoNivel);
-    }
+  // Subir de nivel cada 5 pomodoros
+  const nuevoNivel = Math.floor(nuevosPomodoros / 5) + 1;
 
-    // Guardar en la base de datos
-    if (usuario) {
+  if (nuevoNivel > nivelUsuario) {
+    setNivelUsuario(nuevoNivel);
+
+    // Buscar qué mascota se desbloquea con ese nivel
+    const mascotaNueva = Object.values(mascotasData).find(
+      m => m.nivelRequerido === nuevoNivel
+    );
+
+    if (mascotaNueva && usuario) {
       try {
-        await fetch('http://192.168.1.4:3001/pomodoros', {
+        // Guardar en la base de datos
+        await fetch(`http://192.168.1.X:3001/mascotas_usuario`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             usuario_id: usuario.id,
-            interrumpido: false,
+            nombre_mascota: mascotaNueva.nombre,
           }),
         });
+
+        // Mostrar alerta de nueva mascota desbloqueada
+        Alert.alert(
+          '🎉 ¡Nueva mascota desbloqueada!',
+          `¡Llegaste al nivel ${nuevoNivel}! Ahora tienes a ${mascotaNueva.nombre} disponible en tu perfil.`,
+          [{ text: '¡Qué emoción! 🐾' }]
+        );
       } catch (error) {
-        console.log('Error al guardar pomodoro:', error);
+        console.log('Error al desbloquear mascota:', error);
       }
     }
-  };
+  }
+
+  // Guardar pomodoro en la base de datos
+  if (usuario) {
+    try {
+      await fetch('http://192.168.1.X:3001/pomodoros', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          usuario_id: usuario.id,
+          interrumpido: false,
+        }),
+      });
+    } catch (error) {
+      console.log('Error al guardar pomodoro:', error);
+    }
+  }
+};
 
   return (
     <MascotaContext.Provider value={{

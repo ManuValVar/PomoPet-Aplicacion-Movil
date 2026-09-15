@@ -19,7 +19,15 @@ export default function BienvenidaScreen({ navigation }) {
     Quicksand_700Bold,
   });
 
-  if (!fontsLoaded) return null;
+  if (!fontsLoaded) {
+  return (
+    <View style={styles.container}>
+      <Text style={{ textAlign: 'center', marginTop: 100 }}>
+        Cargando fuentes...
+      </Text>
+    </View>
+  );
+  }  
 
   const crearUsuario = async () => {
     if (!nombre.trim()) {
@@ -31,7 +39,7 @@ export default function BienvenidaScreen({ navigation }) {
     setError('');
 
     try {
-        const response = await fetch('http://localhost:3001/usuarios', {
+        const response = await fetch('http://192.168.1.6:3001/usuarios', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nombre: nombre.trim() }),

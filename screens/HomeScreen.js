@@ -5,7 +5,7 @@ import { LineChart } from 'react-native-chart-kit';
 import { useMascota } from '../Context/MascotaContext';
 import { useFocusEffect } from '@react-navigation/native';
 
-const API_URL = 'http://localhost:3001';
+const API_URL = 'http://192.168.1.6:3001';
 const screenWidth = Dimensions.get('window').width;
 
 export default function HomeScreen() {

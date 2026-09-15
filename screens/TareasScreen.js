@@ -7,7 +7,7 @@ import { useFonts, Quicksand_400Regular, Quicksand_600SemiBold, Quicksand_700Bol
 import { Calendar } from 'react-native-calendars';
 import { useMascota } from '../Context/MascotaContext';
 
-const API_URL = 'http://localhost:3001';
+const API_URL = 'http://192.168.1.6:3001';
 
 const coloresPastel = [
   '#FFD6A5', '#CAFFBF', '#9fc7e9', '#FFC6FF', '#c7f1f7',

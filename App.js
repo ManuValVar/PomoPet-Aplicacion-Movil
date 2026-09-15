@@ -7,6 +7,7 @@ import TabNavigator from './navigation/TabNavigator';
 const Stack = createStackNavigator();
 
 export default function App() {
+  console.log('APP SE ESTÁ EJECUTANDO');
   return (
     <MascotaProvider>
       <NavigationContainer>

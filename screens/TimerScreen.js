@@ -1,31 +1,40 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-View, Text, StyleSheet, TouchableOpacity, Animated, Alert, BackHandler, AppState
+  View, Text, StyleSheet, TouchableOpacity, Animated, Alert, BackHandler, AppState
 } from 'react-native';
 import { useFonts, Quicksand_400Regular, Quicksand_600SemiBold, Quicksand_700Bold } from '@expo-google-fonts/quicksand';
 import { Audio } from 'expo-av';
 import { useFocusEffect } from '@react-navigation/native';
 import { useMascota } from '../Context/MascotaContext';
+import * as Notifications from 'expo-notifications';
 
 const TIEMPO_POMODORO = 25 * 60;
 const TIEMPO_BREAK = 5 * 60;
+const API_URL = 'http://192.168.1.6:3001';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 export default function TimerScreen() {
   const [enBreak, setEnBreak] = useState(false);
   const [segundos, setSegundos] = useState(TIEMPO_POMODORO);
   const [corriendo, setCorriendo] = useState(false);
-  const { mascota, tema, completarPomodoro } = useMascota();
+  const { mascota, tema, completarPomodoro, usuario } = useMascota();
 
   const mascotaAnim = useRef(new Animated.Value(1)).current;
   const intervaloRef = useRef(null);
   const enBreakRef = useRef(false);
   const terminoCicloRef = useRef(false);
-
-  // Para AppState — timestamp
-  const inicioTimestampRef = useRef(null);   // hora exacta en que inició el ciclo
-  const segundosAlSalirRef = useRef(null);   // segundos que quedaban al salir
+  const inicioTimestampRef = useRef(null);
+  const segundosAlSalirRef = useRef(null);
   const appStateRef = useRef(AppState.currentState);
-  const corriendoRef = useRef(false);        // ref espejo de corriendo para usarlo dentro del listener
+  const corriendoRef = useRef(false);
+  const usuarioRef = useRef(null);
 
   const [fontsLoaded] = useFonts({
     Quicksand_400Regular,
@@ -33,11 +42,25 @@ export default function TimerScreen() {
     Quicksand_700Bold,
   });
 
-  // Mantener corriendoRef sincronizado con corriendo
+  // Sincronizar usuarioRef
+  useEffect(() => {
+    usuarioRef.current = usuario;
+  }, [usuario]);
+
+  // Pedir permisos de notificaciones
+  useEffect(() => {
+    const pedirPermisos = async () => {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== 'granted') {
+        console.log('Permisos de notificaciones denegados');
+      }
+    };
+    pedirPermisos();
+  }, []);
+
+  // Sincronizar corriendoRef
   useEffect(() => {
     corriendoRef.current = corriendo;
-
-    // Guardar timestamp cuando inicia el timer
     if (corriendo) {
       inicioTimestampRef.current = Date.now();
     }
@@ -66,7 +89,7 @@ export default function TimerScreen() {
     }
   }, [corriendo]);
 
-  // Lógica del timer con timestamp
+  // Lógica del timer
   useEffect(() => {
     if (corriendo) {
       intervaloRef.current = setInterval(() => {
@@ -91,7 +114,21 @@ export default function TimerScreen() {
         if (terminoCicloRef.current) {
           terminoCicloRef.current = false;
           reproducirSonido();
-          completarPomodoro();
+
+          if (!enBreakRef.current) {
+            // Solo cuenta cuando termina el pomodoro de 25 min
+            completarPomodoro();
+            enviarNotificacion(
+              '🎉 ¡Pomodoro completado!',
+              '¡Excelente trabajo! Tómate un descanso de 5 minutos.'
+            );
+          } else {
+            // El break no cuenta como pomodoro
+            enviarNotificacion(
+              '☕ ¡Break terminado!',
+              '¡Hora de concentrarse! Empieza tu siguiente Pomodoro.'
+            );
+          }
         }
       }, 1000);
     } else {
@@ -108,9 +145,7 @@ export default function TimerScreen() {
       // App pasa a background
       if (appStateRef.current === 'active' && nextAppState === 'background') {
         if (corriendoRef.current) {
-          // Guardar segundos exactos que quedaban
           segundosAlSalirRef.current = Date.now();
-          // Pausar el timer
           setCorriendo(false);
           clearInterval(intervaloRef.current);
         }
@@ -119,8 +154,8 @@ export default function TimerScreen() {
       // App regresa a foreground
       if (appStateRef.current === 'background' && nextAppState === 'active') {
         if (segundosAlSalirRef.current !== null) {
-          // Calcular cuánto tiempo estuvo fuera
-          const segundosFuera = Math.floor((Date.now() - segundosAlSalirRef.current) / 1000);
+          const horaRegreso = Date.now();
+          const segundosFuera = Math.floor((horaRegreso - segundosAlSalirRef.current) / 1000);
           const minutosFuera = Math.floor(segundosFuera / 60);
           const segundosExtra = segundosFuera % 60;
 
@@ -128,22 +163,23 @@ export default function TimerScreen() {
             ? `${minutosFuera} min ${segundosExtra} seg`
             : `${segundosExtra} seg`;
 
+          // Guardar interrupción en la base de datos
+          if (usuarioRef.current) {
+            guardarInterrupcion(
+              new Date(segundosAlSalirRef.current).toISOString(),
+              new Date(horaRegreso).toISOString(),
+              segundosFuera
+            );
+          }
+
           segundosAlSalirRef.current = null;
 
-          // Mostrar alerta de interrupción
           Alert.alert(
             '⚠️ Sesión interrumpida',
             `Saliste de PomoPet durante tu Pomodoro.\nEstuviste fuera ${tiempoFueraTexto}.\n\n¿Qué quieres hacer?`,
             [
-              {
-                text: '🔄 Reiniciar Pomodoro',
-                style: 'destructive',
-                onPress: reiniciar,
-              },
-              {
-                text: '▶️ Continuar',
-                onPress: () => setCorriendo(true),
-              },
+              { text: '🔄 Reiniciar Pomodoro', style: 'destructive', onPress: reiniciar },
+              { text: '▶️ Continuar', onPress: () => setCorriendo(true) },
             ]
           );
         }
@@ -184,6 +220,50 @@ export default function TimerScreen() {
       await sound.playAsync();
     } catch (error) {
       console.log('Error al reproducir sonido', error);
+    }
+  };
+
+  const enviarNotificacion = async (titulo, cuerpo) => {
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: titulo,
+          body: cuerpo,
+          sound: true,
+        },
+        trigger: null,
+      });
+    } catch (error) {
+      console.log('Error al enviar notificación', error);
+    }
+  };
+
+  const guardarInterrupcion = async (horaSalida, horaRegreso, duracionSegundos) => {
+    try {
+      const resPomodoro = await fetch(`${API_URL}/pomodoros`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          usuario_id: usuarioRef.current.id,
+          interrumpido: true,
+        }),
+      });
+      const dataPomodoro = await resPomodoro.json();
+
+      await fetch(`${API_URL}/interrupciones`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pomodoro_id: dataPomodoro.id,
+          hora_salida: horaSalida,
+          hora_regreso: horaRegreso,
+          duracion_segundos: duracionSegundos,
+        }),
+      });
+
+      console.log('✅ Interrupción guardada');
+    } catch (error) {
+      console.log('Error al guardar interrupción:', error);
     }
   };
 
