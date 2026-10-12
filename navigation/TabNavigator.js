@@ -1,6 +1,7 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useMascota } from '../Context/MascotaContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import HomeScreen from '../screens/HomeScreen';
 import TareasScreen from '../screens/TareasScreen';
@@ -11,6 +12,7 @@ const Tab = createBottomTabNavigator();
 
 export default function TabNavigator() {
   const { tema } = useMascota();
+  const insets = useSafeAreaInsets();
 
   return (
     <Tab.Navigator
@@ -19,6 +21,7 @@ export default function TabNavigator() {
         tabBarStyle: {
           backgroundColor: tema.suave,
           borderTopColor: tema.medio,
+          height: 65 + insets.bottom,
           borderTopWidth: 1,
           height: 85,
           paddingBottom: 20,

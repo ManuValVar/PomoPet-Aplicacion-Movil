@@ -3,28 +3,39 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Animated, Alert, BackHandler, AppState
 } from 'react-native';
 import { useFonts, Quicksand_400Regular, Quicksand_600SemiBold, Quicksand_700Bold } from '@expo-google-fonts/quicksand';
-import { Audio } from 'expo-av';
+import { useAudioPlayer } from 'expo-audio';
 import { useFocusEffect } from '@react-navigation/native';
 import { useMascota } from '../Context/MascotaContext';
-import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
+import { Platform } from 'react-native';
+import AlertPersonalizado from '../components/AlertPersonalizado';
+
 
 const TIEMPO_POMODORO = 25 * 60;
 const TIEMPO_BREAK = 5 * 60;
-const API_URL = 'http://192.168.1.6:3001';
+const API_URL = 'http://192.168.1.7:3001';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+
+const esExpoGoAndroid = Constants.executionEnvironment === 'storeClient' && Platform.OS === 'android';
+
+let Notifications = null;
+if (!esExpoGoAndroid) {
+  Notifications = require('expo-notifications');
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
 
 export default function TimerScreen() {
   const [enBreak, setEnBreak] = useState(false);
   const [segundos, setSegundos] = useState(TIEMPO_POMODORO);
   const [corriendo, setCorriendo] = useState(false);
   const { mascota, tema, completarPomodoro, usuario } = useMascota();
+  const [alertReiniciar, setAlertReiniciar] = useState(false);
 
   const mascotaAnim = useRef(new Animated.Value(1)).current;
   const intervaloRef = useRef(null);
@@ -35,6 +46,10 @@ export default function TimerScreen() {
   const appStateRef = useRef(AppState.currentState);
   const corriendoRef = useRef(false);
   const usuarioRef = useRef(null);
+  const eraBreakRef = useRef(false);
+  const sonidoPlayer = useAudioPlayer(require('../assets/done.mp3'));
+  const [alertInterrupcion, setAlertInterrupcion] = useState({ visible: false, tiempoFuera: '' });
+  
 
   const [fontsLoaded] = useFonts({
     Quicksand_400Regular,
@@ -49,6 +64,7 @@ export default function TimerScreen() {
 
   // Pedir permisos de notificaciones
   useEffect(() => {
+    if (!Notifications) return;
     const pedirPermisos = async () => {
       const { status } = await Notifications.requestPermissionsAsync();
       if (status !== 'granted') {
@@ -57,6 +73,7 @@ export default function TimerScreen() {
     };
     pedirPermisos();
   }, []);
+
 
   // Sincronizar corriendoRef
   useEffect(() => {
@@ -90,53 +107,59 @@ export default function TimerScreen() {
   }, [corriendo]);
 
   // Lógica del timer
+
   useEffect(() => {
-    if (corriendo) {
-      intervaloRef.current = setInterval(() => {
-        setSegundos(prev => {
-          if (prev <= 1) {
-            terminoCicloRef.current = true;
-            if (!enBreakRef.current) {
-              enBreakRef.current = true;
-              setEnBreak(true);
-              inicioTimestampRef.current = Date.now();
-              return TIEMPO_BREAK;
-            } else {
-              enBreakRef.current = false;
-              setEnBreak(false);
-              inicioTimestampRef.current = Date.now();
-              return TIEMPO_POMODORO;
-            }
-          }
-          return prev - 1;
-        });
-
-        if (terminoCicloRef.current) {
-          terminoCicloRef.current = false;
-          reproducirSonido();
-
+  if (corriendo) {
+    intervaloRef.current = setInterval(() => {
+      setSegundos(prev => {
+        if (prev <= 1) {
+          terminoCicloRef.current = true;
+          eraBreakRef.current = enBreakRef.current; // guarda ANTES del cambio
           if (!enBreakRef.current) {
-            // Solo cuenta cuando termina el pomodoro de 25 min
-            completarPomodoro();
-            enviarNotificacion(
-              '🎉 ¡Pomodoro completado!',
-              '¡Excelente trabajo! Tómate un descanso de 5 minutos.'
-            );
+            enBreakRef.current = true;
+            setEnBreak(true);
+            inicioTimestampRef.current = Date.now();
+            return TIEMPO_BREAK;
           } else {
-            // El break no cuenta como pomodoro
-            enviarNotificacion(
-              '☕ ¡Break terminado!',
-              '¡Hora de concentrarse! Empieza tu siguiente Pomodoro.'
-            );
+            enBreakRef.current = false;
+            setEnBreak(false);
+            inicioTimestampRef.current = Date.now();
+            return TIEMPO_POMODORO;
           }
         }
-      }, 1000);
-    } else {
-      clearInterval(intervaloRef.current);
-    }
+        return prev - 1;
+      });
 
-    return () => clearInterval(intervaloRef.current);
-  }, [corriendo]);
+      if (terminoCicloRef.current) {
+        terminoCicloRef.current = false;
+        reproducirSonido();
+
+        if (!eraBreakRef.current) {
+          // ← usa eraBreakRef, no enBreakRef
+          // Terminó el Pomodoro de 25 min
+          completarPomodoro();
+          enviarNotificacion(
+            '🎉 ¡Pomodoro completado!',
+            '¡Excelente trabajo! Tómate un descanso de 5 minutos.'
+          );
+          
+        } else {
+          // Terminó el Break
+          enviarNotificacion(
+            '☕ ¡Break terminado!',
+            '¡Hora de concentrarse! Empieza tu siguiente Pomodoro.'
+          );
+          
+        }
+      }
+    }, 1000);
+  } else {
+    clearInterval(intervaloRef.current);
+  }
+
+  return () => clearInterval(intervaloRef.current);
+}, [corriendo]);
+  
 
   // AppState — detectar salida y regreso
   useEffect(() => {
@@ -174,14 +197,7 @@ export default function TimerScreen() {
 
           segundosAlSalirRef.current = null;
 
-          Alert.alert(
-            '⚠️ Sesión interrumpida',
-            `Saliste de PomoPet durante tu Pomodoro.\nEstuviste fuera ${tiempoFueraTexto}.\n\n¿Qué quieres hacer?`,
-            [
-              { text: '🔄 Reiniciar Pomodoro', style: 'destructive', onPress: reiniciar },
-              { text: '▶️ Continuar', onPress: () => setCorriendo(true) },
-            ]
-          );
+          setAlertInterrupcion({ visible: true, tiempoFuera: tiempoFueraTexto });
         }
       }
 
@@ -212,25 +228,22 @@ export default function TimerScreen() {
     return () => subscription.remove();
   });
 
-  const reproducirSonido = async () => {
-    try {
-      const { sound } = await Audio.Sound.createAsync(
-        require('../assets/done.mp3')
-      );
-      await sound.playAsync();
-    } catch (error) {
-      console.log('Error al reproducir sonido', error);
-    }
+  const reproducirSonido = () => {
+  try {
+    sonidoPlayer.seekTo(0);
+    sonidoPlayer.play();
+  } catch (error) {
+    console.log('Error al reproducir sonido', error);
+  }
   };
 
   const enviarNotificacion = async (titulo, cuerpo) => {
+    if (!Notifications) {
+      return;
+    }
     try {
       await Notifications.scheduleNotificationAsync({
-        content: {
-          title: titulo,
-          body: cuerpo,
-          sound: true,
-        },
+        content: { title: titulo, body: cuerpo, sound: true },
         trigger: null,
       });
     } catch (error) {
@@ -354,24 +367,15 @@ export default function TimerScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[
-            styles.btnReiniciar,
-            { backgroundColor: tema.medio, borderColor: tema.principal }
-          ]}
+          style={[styles.btnReiniciar, { backgroundColor: tema.medio, borderColor: tema.principal }]}
           onPress={() => {
             if (corriendo) {
-              Alert.alert(
-                '¿Reiniciar sesión?',
-                'Perderás tu progreso actual.',
-                [
-                  { text: 'Cancelar', style: 'cancel' },
-                  { text: 'Reiniciar', style: 'destructive', onPress: reiniciar },
-                ]
-              );
+              setAlertReiniciar(true);
             } else {
               reiniciar();
             }
           }}
+          
         >
           <Text style={[styles.btnReiniciarTexto, { color: tema.textoSuave }]}>↺</Text>
         </TouchableOpacity>
@@ -393,6 +397,39 @@ export default function TimerScreen() {
           enBreak && { backgroundColor: tema.principal }
         ]} />
       </View>
+
+      <AlertPersonalizado
+        visible={alertReiniciar}
+        titulo="¿Reiniciar sesión?"
+        mensaje="Perderás tu progreso actual del Pomodoro."
+        textoCancelar="Cancelar"
+        textoConfirmar="Reiniciar"
+        tipo="peligro"
+        mostrarMascota={true}
+        onCancelar={() => setAlertReiniciar(false)}
+        onConfirmar={() => {
+          setAlertReiniciar(false);
+          reiniciar();
+        }}
+      />
+
+      <AlertPersonalizado
+        visible={alertInterrupcion.visible}
+        titulo="⚠️ Sesión interrumpida"
+        mensaje={`Saliste de PomoPet durante tu Pomodoro.\nEstuviste fuera ${alertInterrupcion.tiempoFuera}.`}
+        textoCancelar="▶️ Continuar"
+        textoConfirmar="🔄 Reiniciar"
+        tipo="peligro"
+        mostrarMascota={true}
+        onCancelar={() => {
+          setAlertInterrupcion({ visible: false, tiempoFuera: '' });
+          setCorriendo(true);
+        }}
+        onConfirmar={() => {
+          setAlertInterrupcion({ visible: false, tiempoFuera: '' });
+          reiniciar();
+        }}
+      />
 
     </View>
   );
@@ -429,19 +466,21 @@ const styles = StyleSheet.create({
     borderRadius: 120,
     borderWidth: 6,
   },
+  
   mascotaImagen: {
     width: 140,
     height: 140,
     resizeMode: 'contain',
     position: 'absolute',
-    top: 20,
-  },
+    top: 10,
+},
   tiempo: {
     fontFamily: 'Quicksand_700Bold',
-    fontSize: 48,
+    fontSize: 40,
     position: 'absolute',
-    bottom: 20,
-  },
+    bottom: 14,
+},
+
   progresoBarra: {
     position: 'absolute',
     width: 240,

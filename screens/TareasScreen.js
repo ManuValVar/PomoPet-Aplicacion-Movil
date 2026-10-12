@@ -1,20 +1,21 @@
 import { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Modal, TextInput, ActivityIndicator
+  Modal, TextInput, ActivityIndicator, Alert
 } from 'react-native';
 import { useFonts, Quicksand_400Regular, Quicksand_600SemiBold, Quicksand_700Bold } from '@expo-google-fonts/quicksand';
 import { Calendar } from 'react-native-calendars';
 import { useMascota } from '../Context/MascotaContext';
+import AlertPersonalizado from '../components/AlertPersonalizado';
 
-const API_URL = 'http://192.168.1.6:3001';
+const API_URL = 'http://192.168.1.7:3001';
 
 const coloresPastel = [
   '#FFD6A5', '#CAFFBF', '#9fc7e9', '#FFC6FF', '#c7f1f7',
   '#FDFFB6', '#FFB5A7', '#D0F4DE', '#E2CFEA',
 ];
 
-export default function TareasScreen() {
+export default function TareasScreen({ route }) {
   const { tema, usuario } = useMascota();
 
   const [vistaActiva, setVistaActiva] = useState('lista');
@@ -33,25 +34,39 @@ export default function TareasScreen() {
   const [nombreNuevaMateria, setNombreNuevaMateria] = useState('');
   const [colorSeleccionado, setColorSeleccionado] = useState('#FFD6A5');
 
+  const [modalEditarTarea, setModalEditarTarea] = useState(false);
+  const [modalEditarMateria, setModalEditarMateria] = useState(false);
+  const [tareaEditando, setTareaEditando] = useState(null);
+  const [materiaEditando, setMateriaEditando] = useState(null);
+  const [nombreEditado, setNombreEditado] = useState('');
+  const [fechaEditada, setFechaEditada] = useState('');
+  const [colorEditado, setColorEditado] = useState('');
+  const [mostrarCalendarioEditar, setMostrarCalendarioEditar] = useState(false);
+  const [alertEliminarTarea, setAlertEliminarTarea] = useState({ visible: false, materiaId: null, tareaId: null });
+  const [alertEliminarMateria, setAlertEliminarMateria] = useState({ visible: false, materiaId: null });
+
   const [fontsLoaded] = useFonts({
     Quicksand_400Regular,
     Quicksand_600SemiBold,
     Quicksand_700Bold,
   });
 
-  // Cargar materias y tareas al entrar
   useEffect(() => {
     if (usuario) cargarMaterias();
   }, [usuario]);
 
+  useEffect(() => {
+  if (route?.params?.materiaId && materias.length > 0) {
+    setMateriasAbiertas([route.params.materiaId]);
+  }
+  }, [route?.params?.materiaId, materias]);
+
   const cargarMaterias = async () => {
     setCargando(true);
     try {
-      // Traer materias del usuario
       const resMaterias = await fetch(`${API_URL}/usuarios/${usuario.id}/materias`);
       const dataMaterias = await resMaterias.json();
 
-      // Por cada materia traer sus tareas
       const materiasConTareas = await Promise.all(
         dataMaterias.map(async (materia) => {
           const resTareas = await fetch(`${API_URL}/materias/${materia.id}/tareas`);
@@ -79,7 +94,6 @@ export default function TareasScreen() {
   };
 
   const toggleTarea = async (materiaId, tareaId) => {
-    // Actualizar localmente primero
     const nuevasMaterias = materias.map(materia => {
       if (materia.id === materiaId) {
         return {
@@ -96,11 +110,9 @@ export default function TareasScreen() {
     });
     setMaterias(nuevasMaterias);
 
-    // Buscar la tarea actualizada
     const materia = nuevasMaterias.find(m => m.id === materiaId);
     const tarea = materia.tareas.find(t => t.id === tareaId);
 
-    // Guardar en la base de datos
     try {
       await fetch(`${API_URL}/tareas/${tareaId}`, {
         method: 'PUT',
@@ -116,9 +128,92 @@ export default function TareasScreen() {
     }
   };
 
+  const eliminarTarea = (materiaId, tareaId) => {
+    setAlertEliminarTarea({ visible: true, materiaId, tareaId });
+};
+    
+
+  const abrirEditarTarea = (tarea, materiaId) => {
+    setTareaEditando({ ...tarea, materiaId });
+    setNombreEditado(tarea.nombre);
+    setFechaEditada(tarea.fecha || '');
+    setModalEditarTarea(true);
+  };
+
+  const guardarEdicionTarea = async () => {
+    if (!nombreEditado.trim()) return;
+    try {
+      await fetch(`${API_URL}/tareas/${tareaEditando.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: nombreEditado.trim(),
+          fecha: fechaEditada,
+          completada: tareaEditando.completada,
+        }),
+      });
+
+      setMaterias(materias.map(materia => {
+        if (materia.id === tareaEditando.materiaId) {
+          return {
+            ...materia,
+            tareas: materia.tareas.map(t => {
+              if (t.id === tareaEditando.id) {
+                return { ...t, nombre: nombreEditado.trim(), fecha: fechaEditada };
+              }
+              return t;
+            })
+          };
+        }
+        return materia;
+      }));
+
+      setModalEditarTarea(false);
+      setTareaEditando(null);
+    } catch (error) {
+      console.log('Error al editar tarea:', error);
+    }
+  };
+
+  const eliminarMateria = (materiaId) => {
+    setAlertEliminarMateria({ visible: true, materiaId });
+  };
+
+  const abrirEditarMateria = (materia) => {
+    setMateriaEditando(materia);
+    setNombreEditado(materia.nombre);
+    setColorEditado(materia.color);
+    setModalEditarMateria(true);
+  };
+
+  const guardarEdicionMateria = async () => {
+    if (!nombreEditado.trim()) return;
+    try {
+      await fetch(`${API_URL}/materias/${materiaEditando.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: nombreEditado.trim(),
+          color: colorEditado,
+        }),
+      });
+
+      setMaterias(materias.map(m => {
+        if (m.id === materiaEditando.id) {
+          return { ...m, nombre: nombreEditado.trim(), color: colorEditado };
+        }
+        return m;
+      }));
+
+      setModalEditarMateria(false);
+      setMateriaEditando(null);
+    } catch (error) {
+      console.log('Error al editar materia:', error);
+    }
+  };
+
   const agregarMateria = async () => {
     if (!nombreNuevaMateria.trim()) return;
-
     try {
       const response = await fetch(`${API_URL}/materias`, {
         method: 'POST',
@@ -141,9 +236,9 @@ export default function TareasScreen() {
     }
   };
 
-  const agregarTarea = async () => {
+  // Lógica de guardar tarea separada
+  const guardarTareaDirecto = async () => {
     if (!nuevaTarea.trim() || !materiaSeleccionada) return;
-
     try {
       const response = await fetch(`${API_URL}/tareas`, {
         method: 'POST',
@@ -156,7 +251,6 @@ export default function TareasScreen() {
       });
 
       const nuevaTareaData = await response.json();
-
       setMaterias(materias.map(materia => {
         if (materia.id === materiaSeleccionada) {
           return { ...materia, tareas: [...materia.tareas, nuevaTareaData] };
@@ -173,24 +267,59 @@ export default function TareasScreen() {
     }
   };
 
+  // Validación antes de guardar tarea
+  const agregarTarea = async () => {
+    if (mostrarFormMateria && nombreNuevaMateria.trim()) {
+      Alert.alert(
+        '⚠️ Materia sin guardar',
+        'Tienes una materia nueva sin guardar. ¿Qué quieres hacer?',
+        [
+          {
+            text: 'Guardar materia primero',
+            onPress: agregarMateria,
+          },
+          {
+            text: 'Ignorar y guardar tarea',
+            style: 'destructive',
+            onPress: () => {
+              setMostrarFormMateria(false);
+              setNombreNuevaMateria('');
+              guardarTareaDirecto();
+            }
+          },
+          {
+            text: 'Cancelar',
+            style: 'cancel',
+          }
+        ]
+      );
+      return;
+    }
+
+    await guardarTareaDirecto();
+  };
+
   const generarMarcadores = () => {
     const marcadores = {};
     materias.forEach(materia => {
       materia.tareas.forEach(tarea => {
         if (tarea.fecha) {
-          if (!marcadores[tarea.fecha]) {
-            marcadores[tarea.fecha] = { dots: [] };
+          // Normalizar fecha a YYYY-MM-DD
+          const fecha = tarea.fecha.toString().split('T')[0];
+          
+          if (!marcadores[fecha]) {
+            marcadores[fecha] = { dots: [] };
           }
-          const yaExiste = marcadores[tarea.fecha].dots.find(d => d.key === materia.nombre);
+          const yaExiste = marcadores[fecha].dots.find(d => d.key === materia.nombre);
           if (!yaExiste) {
-            marcadores[tarea.fecha].dots.push({
+            marcadores[fecha].dots.push({
               key: materia.nombre,
               color: materia.color === '#FFD6A5' ? '#FF9500' :
-                     materia.color === '#CAFFBF' ? '#34C759' :
-                     materia.color === '#BDE0FE' ? '#007AFF' :
-                     materia.color === '#FFC6FF' ? '#AF52DE' :
-                     materia.color === '#FFB5A7' ? '#FF3B30' :
-                     materia.color,
+                    materia.color === '#CAFFBF' ? '#34C759' :
+                    materia.color === '#BDE0FE' ? '#007AFF' :
+                    materia.color === '#FFC6FF' ? '#AF52DE' :
+                    materia.color === '#FFB5A7' ? '#FF3B30' :
+                    materia.color,
               selectedDotColor: '#fff',
             });
           }
@@ -199,19 +328,23 @@ export default function TareasScreen() {
     });
     return marcadores;
   };
+    
 
   const tareasDelDia = () => {
-    if (!diaSeleccionado) return [];
-    const resultado = [];
-    materias.forEach(materia => {
-      materia.tareas.forEach(tarea => {
-        if (tarea.fecha === diaSeleccionado) {
-          resultado.push({ ...tarea, colorMateria: materia.color, nombreMateria: materia.nombre });
-        }
+      if (!diaSeleccionado) return [];
+      const resultado = [];
+      materias.forEach(materia => {
+        materia.tareas.forEach(tarea => {
+          // Normalizar fecha
+          const fecha = tarea.fecha ? tarea.fecha.toString().split('T')[0] : '';
+          if (fecha === diaSeleccionado) {
+            resultado.push({ ...tarea, colorMateria: materia.color, nombreMateria: materia.nombre });
+          }
+        });
       });
-    });
-    return resultado;
-  };
+      return resultado;
+    };
+    
 
   return (
     <View style={[styles.container, { backgroundColor: tema.suave }]}>
@@ -239,13 +372,10 @@ export default function TareasScreen() {
         </View>
       </View>
 
-      {/* Cargando */}
       {cargando ? (
         <View style={styles.cargandoContainer}>
           <ActivityIndicator size="large" color={tema.principal} />
-          <Text style={[styles.cargandoTexto, { color: tema.textoSuave }]}>
-            Cargando tus tareas...
-          </Text>
+          <Text style={[styles.cargandoTexto, { color: tema.textoSuave }]}>Cargando tus tareas...</Text>
         </View>
       ) : (
         <>
@@ -262,34 +392,77 @@ export default function TareasScreen() {
               ) : (
                 materias.map(materia => (
                   <View key={materia.id} style={styles.materiaCard}>
-                    <TouchableOpacity
-                      style={[styles.materiaHeader, { backgroundColor: materia.color }]}
-                      onPress={() => toggleMateria(materia.id)}
-                    >
-                      <Text style={[styles.materiaNombre, { color: tema.texto }]}>{materia.nombre}</Text>
-                      <Text style={[styles.materiaFlecha, { color: tema.texto }]}>
-                        {materiasAbiertas.includes(materia.id) ? '▲' : '▼'}
-                      </Text>
-                    </TouchableOpacity>
 
+                    {/* Header materia */}
+                    <View style={[styles.materiaHeader, { backgroundColor: materia.color }]}>
+                      <TouchableOpacity
+                        style={{ flex: 1 }}
+                        onPress={() => toggleMateria(materia.id)}
+                      >
+                        <Text style={[styles.materiaNombre, { color: tema.texto }]}>
+                          {materia.nombre}
+                        </Text>
+                      </TouchableOpacity>
+
+                      <View style={styles.materiaAcciones}>
+                        <TouchableOpacity
+                          style={styles.iconoBtn}
+                          onPress={() => abrirEditarMateria(materia)}
+                        >
+                          <Text style={styles.iconoTexto}>✏️</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.iconoBtn}
+                          onPress={() => eliminarMateria(materia.id)}
+                        >
+                          <Text style={styles.iconoTexto}>🗑️</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.flechaBtn}
+                          onPress={() => toggleMateria(materia.id)}
+                        >
+                          <Text style={[styles.materiaFlecha, { color: tema.texto }]}>
+                            {materiasAbiertas.includes(materia.id) ? '▲' : '▼'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    {/* Tareas */}
                     {materiasAbiertas.includes(materia.id) && (
                       <View style={styles.tareasLista}>
                         {materia.tareas.length === 0 ? (
                           <Text style={[styles.sinTareasLista, { color: tema.textoSuave }]}>No hay tareas aún</Text>
                         ) : (
                           materia.tareas.map(tarea => (
-                            <TouchableOpacity
-                              key={tarea.id}
-                              style={styles.tareaItem}
-                              onPress={() => toggleTarea(materia.id, tarea.id)}
-                            >
-                              <View style={[styles.tareaCirculo, tarea.completada && { backgroundColor: materia.color }]}>
-                                {tarea.completada && <Text style={[styles.tareaCheck, { color: tema.texto }]}>✓</Text>}
+                            <View key={tarea.id} style={styles.tareaRow}>
+                              <TouchableOpacity
+                                style={styles.tareaItem}
+                                onPress={() => toggleTarea(materia.id, tarea.id)}
+                              >
+                                <View style={[styles.tareaCirculo, tarea.completada && { backgroundColor: materia.color }]}>
+                                  {tarea.completada ? <Text style={[styles.tareaCheck, { color: tema.texto }]}>✓</Text> : null }
+                                </View>
+                                <Text style={[styles.tareaNombre, { color: tema.texto }, tarea.completada && styles.tareaCompletada]}>
+                                  {tarea.nombre}
+                                </Text>
+                              </TouchableOpacity>
+
+                              <View style={styles.tareaAcciones}>
+                                <TouchableOpacity
+                                  style={styles.iconoBtn}
+                                  onPress={() => abrirEditarTarea(tarea, materia.id)}
+                                >
+                                  <Text style={styles.iconoTexto}>✏️</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={styles.iconoBtn}
+                                  onPress={() => eliminarTarea(materia.id, tarea.id)}
+                                >
+                                  <Text style={styles.iconoTexto}>🗑️</Text>
+                                </TouchableOpacity>
                               </View>
-                              <Text style={[styles.tareaNombre, { color: tema.texto }, tarea.completada && styles.tareaCompletada]}>
-                                {tarea.nombre}
-                              </Text>
-                            </TouchableOpacity>
+                            </View>
                           ))
                         )}
                       </View>
@@ -341,7 +514,7 @@ export default function TareasScreen() {
                     tareasDelDia().map(tarea => (
                       <View key={tarea.id} style={styles.tareaCalendario}>
                         <View style={[styles.tareaCalendarioPunto, { backgroundColor: tarea.colorMateria }]} />
-                        <View>
+                        <View style={{ flex: 1 }}>
                           <Text style={[styles.tareaCalendarioNombre, { color: tema.texto }]}>{tarea.nombre}</Text>
                           <Text style={[styles.tareaCalendarioMateria, { color: tema.textoSuave }]}>{tarea.nombreMateria}</Text>
                         </View>
@@ -364,13 +537,8 @@ export default function TareasScreen() {
         <Text style={styles.botonAgregarTexto}>+</Text>
       </TouchableOpacity>
 
-      {/* Modal formulario */}
-      <Modal
-        visible={modalVisible}
-        transparent
-        animationType='slide'
-        onRequestClose={() => setModalVisible(false)}
-      >
+      {/* Modal nueva tarea */}
+      <Modal visible={modalVisible} transparent animationType='slide' onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <ScrollView>
             <View style={[styles.modalCard, { backgroundColor: tema.suave }]}>
@@ -380,7 +548,7 @@ export default function TareasScreen() {
               <Text style={[styles.modalLabel, { color: tema.textoSuave }]}>Nombre de la tarea</Text>
               <TextInput
                 style={[styles.modalInput, { color: tema.texto, borderColor: tema.medio }]}
-                placeholder='Ej: Resolver problema Punto 45'
+                placeholder='Ej: Repasar capítulo 3'
                 placeholderTextColor={tema.textoSuave}
                 value={nuevaTarea}
                 onChangeText={setNuevaTarea}
@@ -419,7 +587,6 @@ export default function TareasScreen() {
                     value={nombreNuevaMateria}
                     onChangeText={setNombreNuevaMateria}
                   />
-
                   <Text style={[styles.modalLabel, { color: tema.textoSuave, marginTop: 10 }]}>Color</Text>
                   <View style={styles.coloresSelector}>
                     {coloresPastel.map(color => (
@@ -434,7 +601,6 @@ export default function TareasScreen() {
                       />
                     ))}
                   </View>
-
                   <TouchableOpacity
                     style={[styles.btnGuardarMateria, { backgroundColor: tema.principal }]}
                     onPress={agregarMateria}
@@ -457,21 +623,12 @@ export default function TareasScreen() {
 
               {mostrarCalendario && (
                 <Calendar
-                  onDayPress={(day) => {
-                    setFechaTarea(day.dateString);
-                    setMostrarCalendario(false);
-                  }}
-                  markedDates={{
-                    [fechaTarea]: {
-                      selected: true,
-                      selectedColor: tema.principal,
-                    }
-                  }}
+                  onDayPress={(day) => { setFechaTarea(day.dateString); setMostrarCalendario(false); }}
+                  markedDates={{ [fechaTarea]: { selected: true, selectedColor: tema.principal } }}
                   minDate={new Date().toISOString().split('T')[0]}
                   theme={{
                     backgroundColor: tema.suave,
                     calendarBackground: tema.suave,
-                    textSectionTitleColor: tema.textoSuave,
                     selectedDayBackgroundColor: tema.principal,
                     selectedDayTextColor: '#fff',
                     todayTextColor: tema.principal,
@@ -492,6 +649,7 @@ export default function TareasScreen() {
                     setModalVisible(false);
                     setMostrarFormMateria(false);
                     setMostrarCalendario(false);
+                    setNombreNuevaMateria('');
                   }}
                 >
                   <Text style={[styles.modalBtnCancelarTexto, { color: tema.textoSuave }]}>Cancelar</Text>
@@ -508,6 +666,163 @@ export default function TareasScreen() {
           </ScrollView>
         </View>
       </Modal>
+
+      {/* Modal editar tarea */}
+      <Modal visible={modalEditarTarea} transparent animationType='slide' onRequestClose={() => setModalEditarTarea(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: tema.suave }]}>
+
+            <Text style={[styles.modalTitulo, { color: tema.texto }]}>Editar Tarea</Text>
+
+            <Text style={[styles.modalLabel, { color: tema.textoSuave }]}>Nombre</Text>
+            <TextInput
+              style={[styles.modalInput, { color: tema.texto, borderColor: tema.medio }]}
+              value={nombreEditado}
+              onChangeText={setNombreEditado}
+              placeholderTextColor={tema.textoSuave}
+            />
+
+            <Text style={[styles.modalLabel, { color: tema.textoSuave }]}>Fecha</Text>
+            <TouchableOpacity
+              style={[styles.fechaSelector, { borderColor: tema.medio }]}
+              onPress={() => setMostrarCalendarioEditar(!mostrarCalendarioEditar)}
+            >
+              <Text style={[styles.fechaSelectorTexto, { color: fechaEditada ? tema.texto : tema.textoSuave }]}>
+                {fechaEditada ? fechaEditada : 'Seleccionar fecha'}
+              </Text>
+              <Text style={styles.fechaIcono}>📅</Text>
+            </TouchableOpacity>
+
+            {mostrarCalendarioEditar && (
+              <Calendar
+                onDayPress={(day) => { setFechaEditada(day.dateString); setMostrarCalendarioEditar(false); }}
+                markedDates={{ [fechaEditada]: { selected: true, selectedColor: tema.principal } }}
+                theme={{
+                  backgroundColor: tema.suave,
+                  calendarBackground: tema.suave,
+                  selectedDayBackgroundColor: tema.principal,
+                  selectedDayTextColor: '#fff',
+                  todayTextColor: tema.principal,
+                  dayTextColor: tema.texto,
+                  arrowColor: tema.principal,
+                  monthTextColor: tema.texto,
+                  textDayFontFamily: 'Quicksand_600SemiBold',
+                  textMonthFontFamily: 'Quicksand_700Bold',
+                  textDayHeaderFontFamily: 'Quicksand_600SemiBold',
+                }}
+              />
+            )}
+
+            <View style={styles.modalBotones}>
+              <TouchableOpacity
+                style={[styles.modalBtnCancelar, { borderColor: tema.medio }]}
+                onPress={() => setModalEditarTarea(false)}
+              >
+                <Text style={[styles.modalBtnCancelarTexto, { color: tema.textoSuave }]}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtnGuardar, { backgroundColor: tema.principal }]}
+                onPress={guardarEdicionTarea}
+              >
+                <Text style={styles.modalBtnGuardarTexto}>Guardar</Text>
+              </TouchableOpacity>
+            </View>
+
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal editar materia */}
+      <Modal visible={modalEditarMateria} transparent animationType='slide' onRequestClose={() => setModalEditarMateria(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: tema.suave }]}>
+
+            <Text style={[styles.modalTitulo, { color: tema.texto }]}>Editar Materia</Text>
+
+            <Text style={[styles.modalLabel, { color: tema.textoSuave }]}>Nombre</Text>
+            <TextInput
+              style={[styles.modalInput, { color: tema.texto, borderColor: tema.medio }]}
+              value={nombreEditado}
+              onChangeText={setNombreEditado}
+              placeholderTextColor={tema.textoSuave}
+            />
+
+            <Text style={[styles.modalLabel, { color: tema.textoSuave }]}>Color</Text>
+            <View style={styles.coloresSelector}>
+              {coloresPastel.map(color => (
+                <TouchableOpacity
+                  key={color}
+                  style={[
+                    styles.colorCirculo,
+                    { backgroundColor: color },
+                    colorEditado === color && { borderWidth: 3, borderColor: tema.texto }
+                  ]}
+                  onPress={() => setColorEditado(color)}
+                />
+              ))}
+            </View>
+
+            <View style={styles.modalBotones}>
+              <TouchableOpacity
+                style={[styles.modalBtnCancelar, { borderColor: tema.medio }]}
+                onPress={() => setModalEditarMateria(false)}
+              >
+                <Text style={[styles.modalBtnCancelarTexto, { color: tema.textoSuave }]}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtnGuardar, { backgroundColor: tema.principal }]}
+                onPress={guardarEdicionMateria}
+              >
+                <Text style={styles.modalBtnGuardarTexto}>Guardar</Text>
+              </TouchableOpacity>
+            </View>
+
+          </View>
+        </View>
+      </Modal>
+
+      <AlertPersonalizado
+        visible={alertEliminarTarea.visible}
+        titulo="¿Eliminar tarea?"
+        mensaje="Esta acción no se puede deshacer."
+        textoCancelar="Cancelar"
+        textoConfirmar="Eliminar"
+        tipo="peligro"
+        onCancelar={() => setAlertEliminarTarea({ visible: false, materiaId: null, tareaId: null })}
+        onConfirmar={async () => {
+          setAlertEliminarTarea({ visible: false, materiaId: null, tareaId: null });
+          try {
+            await fetch(`${API_URL}/tareas/${alertEliminarTarea.tareaId}`, { method: 'DELETE' });
+            setMaterias(materias.map(materia => {
+              if (materia.id === alertEliminarTarea.materiaId) {
+                return { ...materia, tareas: materia.tareas.filter(t => t.id !== alertEliminarTarea.tareaId) };
+              }
+              return materia;
+            }));
+          } catch (error) {
+            console.log('Error al eliminar tarea:', error);
+          }
+        }}
+      />
+
+    <AlertPersonalizado
+      visible={alertEliminarMateria.visible}
+      titulo="¿Eliminar materia?"
+      mensaje="También se eliminarán todas las tareas de esta materia."
+      textoCancelar="Cancelar"
+      textoConfirmar="Eliminar"
+      tipo="peligro"
+      onCancelar={() => setAlertEliminarMateria({ visible: false, materiaId: null })}
+      onConfirmar={async () => {
+        setAlertEliminarMateria({ visible: false, materiaId: null });
+        try {
+          await fetch(`${API_URL}/materias/${alertEliminarMateria.materiaId}`, { method: 'DELETE' });
+          setMaterias(materias.filter(m => m.id !== alertEliminarMateria.materiaId));
+        } catch (error) {
+          console.log('Error al eliminar materia:', error);
+        }
+      }}
+    />
 
     </View>
   );
@@ -560,9 +875,7 @@ const styles = StyleSheet.create({
     paddingTop: 80,
     gap: 12,
   },
-  vacioEmoji: {
-    fontSize: 48,
-  },
+  vacioEmoji: { fontSize: 48 },
   vacioTexto: {
     fontFamily: 'Quicksand_400Regular',
     fontSize: 14,
@@ -583,13 +896,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    padding: 14,
   },
   materiaNombre: {
     fontFamily: 'Quicksand_700Bold',
     fontSize: 15,
   },
-  materiaFlecha: { fontSize: 12 },
+  materiaAcciones: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  materiaFlecha: {
+    fontSize: 16,
+  },
+  flechaBtn: {
+    padding: 8,
+  },
   tareasLista: {
     paddingHorizontal: 16,
     paddingBottom: 12,
@@ -600,11 +923,26 @@ const styles = StyleSheet.create({
     fontSize: 13,
     paddingVertical: 8,
   },
+  tareaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
   tareaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    flex: 1,
     gap: 10,
+  },
+  tareaAcciones: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  iconoBtn: {
+    padding: 4,
+  },
+  iconoTexto: {
+    fontSize: 15,
   },
   tareaCirculo: {
     width: 20,

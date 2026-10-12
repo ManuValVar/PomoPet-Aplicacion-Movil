@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, Dimensions, TouchableOpacity } from 'react-native';
 import { useFonts, Quicksand_400Regular, Quicksand_600SemiBold, Quicksand_700Bold } from '@expo-google-fonts/quicksand';
 import { LineChart } from 'react-native-chart-kit';
 import { useMascota } from '../Context/MascotaContext';
 import { useFocusEffect } from '@react-navigation/native';
 
-const API_URL = 'http://192.168.1.6:3001';
+const API_URL = 'http://192.168.1.7:3001';
 const screenWidth = Dimensions.get('window').width;
 
-export default function HomeScreen() {
+export default function HomeScreen({ navigation }) {
   const { mascota, tema, usuario } = useMascota();
 
   const [pomodorosHoy, setPomodorosHoy] = useState(0);
@@ -17,6 +17,7 @@ export default function HomeScreen() {
   const [progresoSemanal, setProgresoSemanal] = useState([0, 0, 0, 0, 0, 0, 0]);
   const [tareasCompletadas, setTareasCompletadas] = useState(0);
   const [tareasTotal, setTareasTotal] = useState(0);
+  const [tareasHoy, setTareasHoy] = useState(0);
 
   const [fontsLoaded] = useFonts({
     Quicksand_400Regular,
@@ -24,7 +25,6 @@ export default function HomeScreen() {
     Quicksand_700Bold,
   });
 
-  // Recargar datos cada vez que el usuario entra al HomeScreen
   useFocusEffect(
     useCallback(() => {
       if (usuario) cargarDatos();
@@ -33,31 +33,30 @@ export default function HomeScreen() {
 
   const cargarDatos = async () => {
     try {
-      // Pomodoros totales
       const resPomodoros = await fetch(`${API_URL}/usuarios/${usuario.id}/pomodoros`);
       const dataPomodoros = await resPomodoros.json();
       setPomodorosTotal(dataPomodoros.total);
 
-      // Pomodoros de hoy
       const resHoy = await fetch(`${API_URL}/usuarios/${usuario.id}/pomodoros/hoy`);
       const dataHoy = await resHoy.json();
       setPomodorosHoy(dataHoy.total);
 
-      // Progreso semanal
       const resSemanal = await fetch(`${API_URL}/usuarios/${usuario.id}/pomodoros/semanal`);
       const dataSemanal = await resSemanal.json();
       setProgresoSemanal(dataSemanal);
 
-      // Materias recientes
       const resMaterias = await fetch(`${API_URL}/usuarios/${usuario.id}/materias`);
       const dataMaterias = await resMaterias.json();
       setMateriasRecientes(dataMaterias.slice(0, 3));
 
-      // Tareas
       const resTareas = await fetch(`${API_URL}/usuarios/${usuario.id}/tareas/stats`);
       const dataTareas = await resTareas.json();
       setTareasCompletadas(dataTareas.completadas);
       setTareasTotal(dataTareas.total);
+
+      const resTareasHoy = await fetch(`${API_URL}/usuarios/${usuario.id}/tareas/hoy`);
+      const dataTareasHoy = await resTareasHoy.json();
+      setTareasHoy(Number(dataTareasHoy.completadas) || 0);
 
     } catch (error) {
       console.log('Error al cargar datos del home:', error);
@@ -89,7 +88,7 @@ export default function HomeScreen() {
           Hola, {usuario?.nombre || 'estudiante'}!
         </Text>
         <Text style={[styles.pregunta, { color: tema.textoSuave }]}>
-          ¿Lista para concentrarte?
+          ¿List@ para concentrarte?
         </Text>
       </View>
 
@@ -102,11 +101,12 @@ export default function HomeScreen() {
           </Text>
         </View>
         <View style={styles.statCard}>
-          <Text style={[styles.statLabel, { color: tema.textoSuave }]}>Objetivos:</Text>
+          <Text style={[styles.statLabel, { color: tema.textoSuave }]}>Tareas Completadas:</Text>
           <Text style={[styles.statValor, { color: tema.texto }]}>
-            {porcentajeObjetivos}% Hecho
+            {tareasCompletadas} ✓
           </Text>
         </View>
+        
       </View>
 
       {/* Sesiones recientes */}
@@ -117,9 +117,13 @@ export default function HomeScreen() {
           </Text>
           <View style={styles.etiquetasRow}>
             {materiasRecientes.map(materia => (
-              <View key={materia.id} style={[styles.etiqueta, { backgroundColor: materia.color }]}>
+              <TouchableOpacity
+                key={materia.id}
+                style={[styles.etiqueta, { backgroundColor: materia.color }]}
+                onPress={() => navigation.navigate('Tareas', { materiaId: materia.id })}
+              >
                 <Text style={[styles.etiquetaTexto, { color: tema.texto }]}>{materia.nombre}</Text>
-              </View>
+              </TouchableOpacity>
             ))}
           </View>
         </View>
@@ -129,49 +133,57 @@ export default function HomeScreen() {
       <View style={styles.seccion}>
         <Text style={[styles.seccionTitulo, { color: tema.texto }]}>Progreso semanal:</Text>
         <View style={styles.graficoCard}>
-          <LineChart
-            data={{
-              labels: ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'],
-              datasets: [
-                {
-                  data: progresoSemanal.length === 7 ? progresoSemanal : [0, 0, 0, 0, 0, 0, 0],
-                  color: () => tema.principal,
-                  strokeWidth: 2,
+          {progresoSemanal && progresoSemanal.length === 7 && (
+            <LineChart
+              data={{
+                labels: ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'],
+                datasets: [
+                  {
+                    data: progresoSemanal.every(v => v === 0) 
+                      ? [0, 0, 0, 0, 0, 0, 0.00000] // ← evita que todos sean 0
+                      : progresoSemanal,
+                    color: () => tema.principal,
+                    strokeWidth: 2,
+                  },
+                ],
+              }}
+              width={screenWidth - 80}
+              height={180}
+              segments={4}
+              fromZero={true}
+              chartConfig={{
+                backgroundColor: '#fff',
+                backgroundGradientFrom: '#fff',
+                backgroundGradientTo: '#fff',
+                decimalPlaces: 0,
+                color: () => tema.principal,
+                labelColor: () => tema.textoSuave,
+                style: { borderRadius: 12 },
+                propsForDots: {
+                  r: '5',
+                  strokeWidth: '2',
+                  stroke: tema.principal,
+                  fill: tema.medio,
                 },
-              ],
-            }}
-            width={screenWidth - 80}
-            height={180}
-            chartConfig={{
-              backgroundColor: '#fff',
-              backgroundGradientFrom: '#fff',
-              backgroundGradientTo: '#fff',
-              decimalPlaces: 0,
-              color: () => tema.principal,
-              labelColor: () => tema.textoSuave,
-              style: { borderRadius: 12 },
-              propsForDots: {
-                r: '5',
-                strokeWidth: '2',
-                stroke: tema.principal,
-                fill: tema.medio,
-              },
-              propsForBackgroundLines: {
-                strokeDasharray: '',
-                stroke: tema.medio,
-                strokeWidth: 1,
-              },
-            }}
-            bezier
-            style={styles.grafico}
-            withInnerLines={true}
-            withOuterLines={false}
-          />
+                propsForBackgroundLines: {
+                  strokeDasharray: '',
+                  stroke: tema.medio,
+                  strokeWidth: 1,
+                },
+              }}
+              bezier
+              style={styles.grafico}
+              withInnerLines={true}
+              withOuterLines={false}
+              yAxisInterval={1}
+            />
+          )}
           <Text style={[styles.graficoSubtitulo, { color: tema.textoSuave }]}>
             Pomodoros completados por día
           </Text>
         </View>
       </View>
+      
 
       <View style={{ height: 40 }} />
     </ScrollView>
@@ -205,8 +217,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   mascotaImagen: {
-    width: 150,
-    height: 150,
+    width: 140,
+    height: 140,
     resizeMode: 'contain',
   },
   saludo: {

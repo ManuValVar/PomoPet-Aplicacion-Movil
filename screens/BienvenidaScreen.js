@@ -39,7 +39,7 @@ export default function BienvenidaScreen({ navigation }) {
     setError('');
 
     try {
-        const response = await fetch('http://192.168.1.6:3001/usuarios', {
+        const response = await fetch('http://192.168.1.7:3001/usuarios', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nombre: nombre.trim() }),

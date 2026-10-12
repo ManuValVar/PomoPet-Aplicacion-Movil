@@ -1,9 +1,22 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
+import { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image} from 'react-native';
 import { useFonts, Quicksand_400Regular, Quicksand_600SemiBold, Quicksand_700Bold } from '@expo-google-fonts/quicksand';
 import { useMascota, mascotasData } from '../Context/MascotaContext';
+import { useFocusEffect } from '@react-navigation/native';
+import AlertPersonalizado from '../components/AlertPersonalizado';
+
+const API_URL = 'http://192.168.1.7:3001';
 
 export default function PerfilScreen() {
-  const { mascotaActual, tema, nivelUsuario, pomodorosCompletados, seleccionarMascota } = useMascota();
+  const {
+    mascotaActual, tema, nivelUsuario,
+    pomodorosCompletados, seleccionarMascota,
+    mascotasDesbloqueadas, usuario, cerrarSesion
+  } = useMascota();
+
+  const [tareasHechas, setTareasHechas] = useState(0);
+  const [pomodorosReales, setPomodorosReales] = useState(0);
+  const [alertCerrarSesion, setAlertCerrarSesion] = useState(false);
 
   const [fontsLoaded] = useFonts({
     Quicksand_400Regular,
@@ -11,16 +24,41 @@ export default function PerfilScreen() {
     Quicksand_700Bold,
   });
 
+  useFocusEffect(
+    useCallback(() => {
+      if (usuario) cargarStats();
+    }, [usuario])
+  );
+
+  const cargarStats = async () => {
+    try {
+      // Tareas completadas
+      const resTareas = await fetch(`${API_URL}/usuarios/${usuario.id}/tareas/stats`);
+      const dataTareas = await resTareas.json();
+      setTareasHechas(Number(dataTareas.completadas) || 0);
+
+      // Pomodoros reales — solo para mostrar, NO actualiza el contexto
+      const resPomodoros = await fetch(`${API_URL}/usuarios/${usuario.id}/pomodoros`);
+      const dataPomodoros = await resPomodoros.json();
+      setPomodorosReales(Number(dataPomodoros.total) || 0);
+
+    } catch (error) {
+      console.log('Error al cargar stats:', error);
+    }
+  };
+
   if (!fontsLoaded) return null;
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: tema.suave }]}>
+    <ScrollView
+      style={[styles.container, { backgroundColor: tema.suave }]}
+      contentContainerStyle={{ paddingBottom: 40 }}
+    >
 
       {/* Header */}
       <View style={[styles.header, { backgroundColor: tema.suave }]}>
         <Text style={[styles.titulo, { color: tema.texto }]}>Mi Perfil</Text>
 
-        {/* Mascota actual grande */}
         <View style={[styles.mascotaCirculoGrande, { backgroundColor: tema.medio, borderColor: tema.principal }]}>
           <Image
             source={mascotasData[mascotaActual].imagenes.home}
@@ -42,26 +80,30 @@ export default function PerfilScreen() {
         <View style={styles.statsGrid}>
 
           <View style={[styles.statCard, { backgroundColor: '#fff' }]}>
-            <Text style={[styles.statNumero, { color: tema.principal }]}>{pomodorosCompletados}</Text>
+            <Text style={[styles.statNumero, { color: tema.principal }]}>
+              {pomodorosReales}
+            </Text>
             <Text style={[styles.statLabel, { color: tema.textoSuave }]}>Pomodoros</Text>
           </View>
 
           <View style={[styles.statCard, { backgroundColor: '#fff' }]}>
             <Text style={[styles.statNumero, { color: tema.principal }]}>
-              {Math.floor(pomodorosCompletados * 25 / 60)}h
+              {Math.floor(pomodorosReales * 25 / 60)}h
             </Text>
             <Text style={[styles.statLabel, { color: tema.textoSuave }]}>Total estudio</Text>
           </View>
 
           <View style={[styles.statCard, { backgroundColor: '#fff' }]}>
             <Text style={[styles.statNumero, { color: tema.principal }]}>
-              {Object.keys(mascotasData).filter(m => mascotasData[m].nivelRequerido <= nivelUsuario).length}
+              {mascotasDesbloqueadas.length}
             </Text>
             <Text style={[styles.statLabel, { color: tema.textoSuave }]}>Mascotas</Text>
           </View>
 
           <View style={[styles.statCard, { backgroundColor: '#fff' }]}>
-            <Text style={[styles.statNumero, { color: tema.principal }]}>0</Text>
+            <Text style={[styles.statNumero, { color: tema.principal }]}>
+              {tareasHechas}
+            </Text>
             <Text style={[styles.statLabel, { color: tema.textoSuave }]}>Tareas hechas</Text>
           </View>
 
@@ -74,7 +116,7 @@ export default function PerfilScreen() {
         <View style={styles.mascotasGrid}>
           {Object.keys(mascotasData).map(nombreMascota => {
             const mascota = mascotasData[nombreMascota];
-            const desbloqueada = mascota.nivelRequerido <= nivelUsuario;
+            const desbloqueada = mascotasDesbloqueadas.includes(nombreMascota);
             const seleccionada = mascotaActual === nombreMascota;
 
             return (
@@ -88,22 +130,16 @@ export default function PerfilScreen() {
                 onPress={() => seleccionarMascota(nombreMascota)}
                 disabled={!desbloqueada}
               >
-                {/* Imagen */}
                 <View style={styles.mascotaImagenContainer}>
                   <Image
                     source={mascota.imagenes.home}
-                    style={[
-                      styles.mascotaImagen,
-                      !desbloqueada && styles.mascotaImagenBloqueada,
-                    ]}
+                    style={[styles.mascotaImagen, !desbloqueada && styles.mascotaImagenBloqueada]}
                   />
-                  {/* Candado si está bloqueada */}
                   {!desbloqueada && (
                     <View style={styles.candadoContainer}>
                       <Text style={styles.candado}>🔒</Text>
                     </View>
                   )}
-                  {/* Check si está seleccionada */}
                   {seleccionada && (
                     <View style={[styles.checkContainer, { backgroundColor: tema.principal }]}>
                       <Text style={styles.check}>✓</Text>
@@ -111,7 +147,6 @@ export default function PerfilScreen() {
                   )}
                 </View>
 
-                {/* Nombre */}
                 <Text style={[
                   styles.mascotaCardNombre,
                   { color: desbloqueada ? tema.texto : '#C4A882' }
@@ -119,14 +154,14 @@ export default function PerfilScreen() {
                   {nombreMascota}
                 </Text>
 
-                {/* Nivel requerido */}
                 <Text style={[
                   styles.mascotaCardNivel,
                   { color: desbloqueada ? tema.principal : '#C4A882' }
                 ]}>
-                  {desbloqueada ? seleccionada ? 'Seleccionada' : 'Disponible' : `Nivel ${mascota.nivelRequerido}`}
+                  {desbloqueada
+                    ? seleccionada ? 'Seleccionada' : 'Disponible'
+                    : `Nivel ${mascota.nivelRequerido}`}
                 </Text>
-
               </TouchableOpacity>
             );
           })}
@@ -134,7 +169,7 @@ export default function PerfilScreen() {
       </View>
 
       {/* Progreso al siguiente nivel */}
-      <View style={[styles.seccion, { marginBottom: 40 }]}>
+      <View style={styles.seccion}>
         <Text style={[styles.seccionTitulo, { color: tema.texto }]}>Progreso al siguiente nivel</Text>
         <View style={[styles.progresoCard, { backgroundColor: '#fff' }]}>
           <View style={styles.progresoInfo}>
@@ -157,16 +192,43 @@ export default function PerfilScreen() {
         </View>
       </View>
 
+      {/* Cerrar sesión */}
+      <View style={[styles.seccion, { marginBottom: 40, marginTop: 24 }]}>
+        <TouchableOpacity
+          style={[styles.btnCerrarSesion, { borderColor: tema.principal }]}
+          onPress={() => setAlertCerrarSesion(true)}
+        >
+          <Text style={[styles.btnCerrarSesionTexto, { color: tema.principal }]}>
+            Cerrar sesión
+          </Text>
+      </TouchableOpacity>
+          
+        
+      </View>
+
+      <AlertPersonalizado
+        visible={alertCerrarSesion}
+        titulo="¿Cerrar sesión?"
+        mensaje="¿Estás segura de que quieres salir de PomoPet?"
+        textoCancelar="Quedarse"
+        textoConfirmar="Cerrar sesión"
+        tipo="peligro"
+        mostrarMascota={true}
+        onCancelar={() => setAlertCerrarSesion(false)}
+        onConfirmar={() => {
+          setAlertCerrarSesion(false);
+          cerrarSesion();
+        }}
+    />
+  
+
+
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-
-  // Header
+  container: { flex: 1 },
   header: {
     alignItems: 'center',
     paddingTop: 60,
@@ -188,8 +250,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   mascotaImagenGrande: {
-    width: 110,
-    height: 110,
+    width: 100,
+    height: 100,
     resizeMode: 'contain',
   },
   mascotaNombreActual: {
@@ -201,8 +263,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 4,
   },
-
-  // Secciones
   seccion: {
     paddingHorizontal: 24,
     marginTop: 24,
@@ -212,8 +272,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 12,
   },
-
-  // Stats
   statsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -238,8 +296,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
   },
-
-  // Mascotas grid
   mascotasGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -258,9 +314,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'transparent',
   },
-  mascotaCardBloqueada: {
-    opacity: 0.6,
-  },
+  mascotaCardBloqueada: { opacity: 0.6 },
   mascotaImagenContainer: {
     position: 'relative',
     width: 80,
@@ -272,9 +326,7 @@ const styles = StyleSheet.create({
     height: 80,
     resizeMode: 'contain',
   },
-  mascotaImagenBloqueada: {
-    opacity: 0.4,
-  },
+  mascotaImagenBloqueada: { opacity: 0.4 },
   candadoContainer: {
     position: 'absolute',
     bottom: 0,
@@ -283,9 +335,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 2,
   },
-  candado: {
-    fontSize: 18,
-  },
+  candado: { fontSize: 18 },
   checkContainer: {
     position: 'absolute',
     top: 0,
@@ -310,8 +360,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
   },
-
-  // Progreso
   progresoCard: {
     borderRadius: 14,
     padding: 16,
@@ -341,5 +389,15 @@ const styles = StyleSheet.create({
   progresoRelleno: {
     height: 10,
     borderRadius: 5,
+  },
+  btnCerrarSesion: {
+    borderWidth: 1.5,
+    borderRadius: 30,
+    padding: 14,
+    alignItems: 'center',
+  },
+  btnCerrarSesionTexto: {
+    fontFamily: 'Quicksand_600SemiBold',
+    fontSize: 15,
   },
 });
