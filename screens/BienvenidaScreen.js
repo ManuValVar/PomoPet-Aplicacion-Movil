@@ -5,6 +5,7 @@ import {
   TouchableOpacity, Image, KeyboardAvoidingView, Platform
 } from 'react-native';
 import { useFonts, Quicksand_400Regular, Quicksand_600SemiBold, Quicksand_700Bold } from '@expo-google-fonts/quicksand';
+import { API_URL } from '../config';
 
 
 export default function BienvenidaScreen({ navigation }) {
@@ -39,7 +40,7 @@ export default function BienvenidaScreen({ navigation }) {
     setError('');
 
     try {
-        const response = await fetch('http://192.168.1.7:3001/usuarios', {
+        const response = await fetch(`${API_URL}/usuarios`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nombre: nombre.trim() }),

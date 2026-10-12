@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useRef } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_URL } from '../config';
 
 export const temas = {
   Osito: {
@@ -203,7 +204,7 @@ export function MascotaProvider({ children }) {
     setSesionActiva(true);
 
     try {
-      const res = await fetch(`http://192.168.1.7:3001/usuarios/${datosUsuario.id}/datos`);
+      const res = await fetch(`${API_URL}/usuarios/${datosUsuario.id}/datos`);
       const datos = await res.json();
       pomodorosRef.current = datos.pomodoros;
       nivelRef.current = datos.nivel;
@@ -231,7 +232,7 @@ export function MascotaProvider({ children }) {
       setMascotaActual(nombreMascota);
       if (usuario) {
         try {
-          await fetch(`http://192.168.1.7:3001/usuarios/${usuario.id}/mascota`, {
+          await fetch(`${API_URL}/usuarios/${usuario.id}/mascota`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ mascota_seleccionada: nombreMascota }),
@@ -273,7 +274,7 @@ export function MascotaProvider({ children }) {
 
       if (mascotaNueva && usuario) {
         try {
-          await fetch(`http://192.168.1.7:3001/mascotas_usuario`, {
+          await fetch(`${API_URL}/mascotas_usuario`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -293,7 +294,7 @@ export function MascotaProvider({ children }) {
 
     if (usuario) {
       try {
-        await fetch('http://192.168.1.7:3001/pomodoros', {
+        await fetch(`${API_URL}/pomodoros`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

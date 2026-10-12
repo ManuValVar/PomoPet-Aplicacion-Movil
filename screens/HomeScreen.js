@@ -4,8 +4,8 @@ import { useFonts, Quicksand_400Regular, Quicksand_600SemiBold, Quicksand_700Bol
 import { LineChart } from 'react-native-chart-kit';
 import { useMascota } from '../Context/MascotaContext';
 import { useFocusEffect } from '@react-navigation/native';
+import { API_URL } from '../config';
 
-const API_URL = 'http://192.168.1.7:3001';
 const screenWidth = Dimensions.get('window').width;
 
 export default function HomeScreen({ navigation }) {

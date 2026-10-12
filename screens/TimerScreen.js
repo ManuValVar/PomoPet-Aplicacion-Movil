@@ -9,11 +9,12 @@ import { useMascota } from '../Context/MascotaContext';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import AlertPersonalizado from '../components/AlertPersonalizado';
+import { API_URL } from '../config';
 
 
 const TIEMPO_POMODORO = 25 * 60;
 const TIEMPO_BREAK = 5 * 60;
-const API_URL = 'http://192.168.1.7:3001';
+
 
 
 const esExpoGoAndroid = Constants.executionEnvironment === 'storeClient' && Platform.OS === 'android';

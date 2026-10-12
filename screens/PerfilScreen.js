@@ -4,8 +4,8 @@ import { useFonts, Quicksand_400Regular, Quicksand_600SemiBold, Quicksand_700Bol
 import { useMascota, mascotasData } from '../Context/MascotaContext';
 import { useFocusEffect } from '@react-navigation/native';
 import AlertPersonalizado from '../components/AlertPersonalizado';
+import { API_URL } from '../config';
 
-const API_URL = 'http://192.168.1.7:3001';
 
 export default function PerfilScreen() {
   const {

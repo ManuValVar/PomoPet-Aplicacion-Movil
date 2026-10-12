@@ -7,8 +7,8 @@ import {
 import { useFonts, Quicksand_400Regular, Quicksand_600SemiBold, Quicksand_700Bold } from '@expo-google-fonts/quicksand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useMascota } from '../Context/MascotaContext';
+import { API_URL } from '../config';
 
-const API_URL = 'http://192.168.1.7:3001';
 
 export default function LoginScreen({ navigation }) {
   const { iniciarSesion } = useMascota();
