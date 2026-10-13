@@ -13,8 +13,8 @@ import AlertPersonalizado from '../components/AlertPersonalizado';
 import { API_URL } from '../config';
 
 
-const TIEMPO_POMODORO = 0.1 * 60;
-const TIEMPO_BREAK = 0.1 * 60;
+const TIEMPO_POMODORO = 25 * 60;
+const TIEMPO_BREAK = 5 * 60;
 
 // Si el usuario sale de la app menos de este tiempo (ej. bloqueo de pantalla),
 // NO se considera interrupción. Ajusta este valor a tu gusto.

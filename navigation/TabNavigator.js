@@ -14,6 +14,10 @@ export default function TabNavigator() {
   const { tema } = useMascota();
   const insets = useSafeAreaInsets();
 
+  // Espacio inferior real del celular (barra de botones o gestos).
+  // El mínimo de 8 evita que quede pegado cuando el celular no reserva espacio.
+  const espacioInferior = Math.max(insets.bottom, 8);
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -21,12 +25,11 @@ export default function TabNavigator() {
         tabBarStyle: {
           backgroundColor: tema.suave,
           borderTopColor: tema.medio,
-          height: 65 + insets.bottom,
           borderTopWidth: 1,
-          height: 85,
-          paddingBottom: 20,
-          paddingTop: 5,
-},
+          height: 60 + espacioInferior,
+          paddingBottom: espacioInferior,
+          paddingTop: 6,
+        },
         tabBarActiveTintColor: tema.principal,
         tabBarInactiveTintColor: tema.textoSuave,
         tabBarIcon: ({ focused, color, size }) => {
