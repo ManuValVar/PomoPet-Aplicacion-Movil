@@ -113,18 +113,32 @@ export default function TareasScreen({ route }) {
     const materia = nuevasMaterias.find(m => m.id === materiaId);
     const tarea = materia.tareas.find(t => t.id === tareaId);
 
+    // Si el servidor no pudo guardar el cambio, devolvemos el chulito a como estaba
+    const revertir = () => {
+      setMaterias(prev => prev.map(m => m.id !== materiaId ? m : {
+        ...m,
+        tareas: m.tareas.map(t => t.id === tareaId ? { ...t, completada: !tarea.completada } : t),
+      }));
+    };
+
     try {
-      await fetch(`${API_URL}/tareas/${tareaId}`, {
+      const res = await fetch(`${API_URL}/tareas/${tareaId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           nombre: tarea.nombre,
-          fecha: tarea.fecha,
+          // Solo YYYY-MM-DD (las tareas cargadas de la BD pueden traer formato ISO)
+          fecha: tarea.fecha ? tarea.fecha.toString().split('T')[0] : null,
           completada: tarea.completada,
         }),
       });
+      if (!res.ok) {
+        console.log('El servidor rechazó la actualización:', await res.text());
+        revertir();
+      }
     } catch (error) {
       console.log('Error al actualizar tarea:', error);
+      revertir();
     }
   };
 
@@ -136,7 +150,7 @@ export default function TareasScreen({ route }) {
   const abrirEditarTarea = (tarea, materiaId) => {
     setTareaEditando({ ...tarea, materiaId });
     setNombreEditado(tarea.nombre);
-    setFechaEditada(tarea.fecha || '');
+    setFechaEditada(tarea.fecha ? tarea.fecha.toString().split('T')[0] : '');
     setModalEditarTarea(true);
   };
 
