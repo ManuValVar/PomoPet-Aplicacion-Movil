@@ -13,8 +13,8 @@ import AlertPersonalizado from '../components/AlertPersonalizado';
 import { API_URL } from '../config';
 
 
-const TIEMPO_POMODORO = 25 * 60;
-const TIEMPO_BREAK = 5 * 60;
+const TIEMPO_POMODORO = 0.1 * 60;
+const TIEMPO_BREAK = 0.1 * 60;
 
 // Si el usuario sale de la app menos de este tiempo (ej. bloqueo de pantalla),
 // NO se considera interrupción. Ajusta este valor a tu gusto.
@@ -28,11 +28,31 @@ if (!esExpoGoAndroid) {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
       shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
       shouldPlaySound: true,
       shouldSetBadge: false,
     }),
   });
 }
+
+const CANAL_ID = 'pomodoro';
+
+// Android 8+ exige un canal; Android 13+ ni siquiera muestra el permiso sin uno.
+const crearCanalAndroid = async () => {
+  if (!Notifications || Platform.OS !== 'android') return;
+  try {
+    await Notifications.setNotificationChannelAsync(CANAL_ID, {
+      name: 'Pomodoro',
+      importance: Notifications.AndroidImportance.MAX,
+      sound: 'default',
+      vibrationPattern: [0, 250, 250, 250],
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
+  } catch (error) {
+    console.log('Error al crear canal de notificaciones', error);
+  }
+};
 
 // Programa una notificación para la hora exacta en que termina la fase.
 // Suena aunque la pantalla esté apagada o la app suspendida.
@@ -51,6 +71,7 @@ const programarNotificacionFin = async (fin, fase) => {
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes?.DATE ?? 'date',
         date: new Date(fin),
+        channelId: CANAL_ID,
       },
     });
   } catch (error) {
@@ -109,6 +130,7 @@ export default function TimerScreen() {
   useEffect(() => {
     if (!Notifications) return;
     const pedirPermisos = async () => {
+      await crearCanalAndroid(); // antes de pedir permiso (necesario en Android 13+)
       const { status } = await Notifications.requestPermissionsAsync();
       if (status !== 'granted') {
         console.log('Permisos de notificaciones denegados');
