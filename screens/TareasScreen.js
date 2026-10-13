@@ -554,7 +554,7 @@ export default function TareasScreen({ route }) {
                 onChangeText={setNuevaTarea}
               />
 
-              <Text style={[styles.modalLabel, { color: tema.textoSuave }]}>Materia</Text>
+              <Text style={[styles.modalLabel, { color: tema.textoSuave }]}>Seleccionar materia o crear nueva</Text>
               <View style={styles.materiasSelector}>
                 {materias.map(materia => (
                   <TouchableOpacity

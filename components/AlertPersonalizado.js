@@ -63,29 +63,39 @@ export default function AlertPersonalizado({
 
             {/* Cancelar — solo si hay función */}
             {onCancelar && (
-              <TouchableOpacity
+                <TouchableOpacity
                 style={[styles.btnCancelar, { borderColor: tema.medio }]}
                 onPress={onCancelar}
-              >
-                <Text style={[styles.btnCancelarTexto, { color: tema.textoSuave }]}>
-                  {textoCancelar}
+                >
+                <Text
+                    style={[styles.btnCancelarTexto, { color: tema.textoSuave }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                >
+                    {textoCancelar}
                 </Text>
-              </TouchableOpacity>
+                </TouchableOpacity>
             )}
+            
 
             {/* Confirmar */}
             <TouchableOpacity
-              style={[
-                styles.btnConfirmar,
-                { backgroundColor: colorConfirmar },
-                !onCancelar && { flex: 1 }
-              ]}
-              onPress={onConfirmar}
-            >
-              <Text style={styles.btnConfirmarTexto}>
-                {textoConfirmar}
-              </Text>
+                style={[
+                    styles.btnConfirmar,
+                    { backgroundColor: colorConfirmar },
+                    !onCancelar && { flex: 1 }
+                    ]}
+                onPress={onConfirmar}
+                >
+                <Text
+                    style={styles.btnConfirmarTexto}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    >
+                    {textoConfirmar}
+                </Text>
             </TouchableOpacity>
+            
 
           </View>
         </View>
@@ -145,7 +155,7 @@ const styles = StyleSheet.create({
   },
   btnCancelarTexto: {
     fontFamily: 'Quicksand_600SemiBold',
-    fontSize: 15,
+    fontSize: 13,
   },
   btnConfirmar: {
     flex: 1,
@@ -155,7 +165,7 @@ const styles = StyleSheet.create({
   },
   btnConfirmarTexto: {
     fontFamily: 'Quicksand_700Bold',
-    fontSize: 15,
+    fontSize: 13,
     color: '#fff',
   },
 });

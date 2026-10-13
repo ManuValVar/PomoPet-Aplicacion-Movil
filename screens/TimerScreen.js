@@ -166,8 +166,9 @@ export default function TimerScreen() {
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextAppState => {
 
-      // App pasa a background
-      if (appStateRef.current === 'active' && nextAppState === 'background') {
+      // App pasa a background (usuario cambió de app o presionó home)
+      // ⚠️ NO pausar en 'inactive' — eso solo es la pantalla apagándose
+      if (nextAppState === 'background') {
         if (corriendoRef.current) {
           segundosAlSalirRef.current = Date.now();
           setCorriendo(false);
@@ -176,7 +177,7 @@ export default function TimerScreen() {
       }
 
       // App regresa a foreground
-      if (appStateRef.current === 'background' && nextAppState === 'active') {
+      if (nextAppState === 'active' && appStateRef.current !== 'active') {
         if (segundosAlSalirRef.current !== null) {
           const horaRegreso = Date.now();
           const segundosFuera = Math.floor((horaRegreso - segundosAlSalirRef.current) / 1000);
