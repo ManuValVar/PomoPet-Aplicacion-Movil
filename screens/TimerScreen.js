@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { useFonts, Quicksand_400Regular, Quicksand_600SemiBold, Quicksand_700Bold } from '@expo-google-fonts/quicksand';
 import { useAudioPlayer } from 'expo-audio';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useFocusEffect } from '@react-navigation/native';
 import { useMascota } from '../Context/MascotaContext';
 import Constants from 'expo-constants';
@@ -15,7 +16,9 @@ import { API_URL } from '../config';
 const TIEMPO_POMODORO = 25 * 60;
 const TIEMPO_BREAK = 5 * 60;
 
-
+// Si el usuario sale de la app menos de este tiempo (ej. bloqueo de pantalla),
+// NO se considera interrupción. Ajusta este valor a tu gusto.
+const UMBRAL_INTERRUPCION_SEG = 20;
 
 const esExpoGoAndroid = Constants.executionEnvironment === 'storeClient' && Platform.OS === 'android';
 
@@ -31,26 +34,59 @@ if (!esExpoGoAndroid) {
   });
 }
 
+// Programa una notificación para la hora exacta en que termina la fase.
+// Suena aunque la pantalla esté apagada o la app suspendida.
+const programarNotificacionFin = async (fin, fase) => {
+  if (!Notifications) return;
+  try {
+    const esPomodoro = fase === 'pomodoro';
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: esPomodoro ? '🎉 ¡Pomodoro completado!' : '☕ ¡Break terminado!',
+        body: esPomodoro
+          ? '¡Excelente trabajo! Tómate un descanso de 5 minutos.'
+          : '¡Hora de concentrarse! Empieza tu siguiente Pomodoro.',
+        sound: true,
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes?.DATE ?? 'date',
+        date: new Date(fin),
+      },
+    });
+  } catch (error) {
+    console.log('Error al programar notificación', error);
+  }
+};
+
+const cancelarNotificaciones = async () => {
+  if (!Notifications) return;
+  try {
+    await Notifications.cancelAllScheduledNotificationsAsync();
+  } catch (error) {
+    console.log('Error al cancelar notificaciones', error);
+  }
+};
+
 export default function TimerScreen() {
   const [enBreak, setEnBreak] = useState(false);
   const [segundos, setSegundos] = useState(TIEMPO_POMODORO);
   const [corriendo, setCorriendo] = useState(false);
   const { mascota, tema, completarPomodoro, usuario } = useMascota();
   const [alertReiniciar, setAlertReiniciar] = useState(false);
+  const [alertInterrupcion, setAlertInterrupcion] = useState({ visible: false, tiempoFuera: '' });
 
   const mascotaAnim = useRef(new Animated.Value(1)).current;
   const intervaloRef = useRef(null);
   const enBreakRef = useRef(false);
-  const terminoCicloRef = useRef(false);
-  const inicioTimestampRef = useRef(null);
-  const segundosAlSalirRef = useRef(null);
-  const appStateRef = useRef(AppState.currentState);
   const corriendoRef = useRef(false);
+  const segundosRef = useRef(TIEMPO_POMODORO);   // segundos restantes (para usar fuera del render)
+  const finRef = useRef(0);                      // timestamp (ms) en que termina la fase actual
+  const salidaRef = useRef(null);                // { hora, restante, eraBreak } al salir de la app
+  const appStateRef = useRef(AppState.currentState);
   const usuarioRef = useRef(null);
-  const eraBreakRef = useRef(false);
+  const completarRef = useRef(completarPomodoro);
+  const tickRef = useRef(() => {});
   const sonidoPlayer = useAudioPlayer(require('../assets/done.mp3'));
-  const [alertInterrupcion, setAlertInterrupcion] = useState({ visible: false, tiempoFuera: '' });
-  
 
   const [fontsLoaded] = useFonts({
     Quicksand_400Regular,
@@ -58,10 +94,16 @@ export default function TimerScreen() {
     Quicksand_700Bold,
   });
 
-  // Sincronizar usuarioRef
+  // Mantener refs sincronizadas
   useEffect(() => {
     usuarioRef.current = usuario;
   }, [usuario]);
+  completarRef.current = completarPomodoro;
+
+  const actualizarSegundos = (valor) => {
+    segundosRef.current = valor;
+    setSegundos(valor);
+  };
 
   // Pedir permisos de notificaciones
   useEffect(() => {
@@ -75,30 +117,13 @@ export default function TimerScreen() {
     pedirPermisos();
   }, []);
 
-
-  // Sincronizar corriendoRef
-  useEffect(() => {
-    corriendoRef.current = corriendo;
-    if (corriendo) {
-      inicioTimestampRef.current = Date.now();
-    }
-  }, [corriendo]);
-
   // Animación mascota
   useEffect(() => {
     if (corriendo) {
       Animated.loop(
         Animated.sequence([
-          Animated.timing(mascotaAnim, {
-            toValue: 1.05,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(mascotaAnim, {
-            toValue: 1,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
+          Animated.timing(mascotaAnim, { toValue: 1.05, duration: 1000, useNativeDriver: true }),
+          Animated.timing(mascotaAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
         ])
       ).start();
     } else {
@@ -107,103 +132,123 @@ export default function TimerScreen() {
     }
   }, [corriendo]);
 
-  // Lógica del timer
+  // Termina la fase actual (pomodoro o break) y arranca la siguiente
+  const terminarFase = (retrasoSeg) => {
+    const eraBreak = enBreakRef.current;
+    const ahoraEsBreak = !eraBreak;
 
+    enBreakRef.current = ahoraEsBreak;
+    setEnBreak(ahoraEsBreak);
+
+    const duracion = ahoraEsBreak ? TIEMPO_BREAK : TIEMPO_POMODORO;
+    finRef.current = Date.now() + duracion * 1000;
+    actualizarSegundos(duracion);
+
+    // La notificación de la fase que acaba de terminar ya estaba programada.
+    // Programamos la de la fase que empieza.
+    programarNotificacionFin(finRef.current, ahoraEsBreak ? 'break' : 'pomodoro');
+
+    if (retrasoSeg < 5) reproducirSonido();
+    if (!eraBreak) completarRef.current();
+  };
+
+  // Cada tick calcula el tiempo restante con la hora real (no depende de contar segundos)
+  tickRef.current = () => {
+    if (!corriendoRef.current) return;
+    if (appStateRef.current !== 'active') return; // en segundo plano lo cubre la notificación
+
+    const restante = Math.ceil((finRef.current - Date.now()) / 1000);
+    if (restante > 0) {
+      if (restante !== segundosRef.current) actualizarSegundos(restante);
+    } else {
+      terminarFase(-restante);
+    }
+  };
+
+  // Timer: arrancar / pausar
   useEffect(() => {
-  if (corriendo) {
-    intervaloRef.current = setInterval(() => {
-      setSegundos(prev => {
-        if (prev <= 1) {
-          terminoCicloRef.current = true;
-          eraBreakRef.current = enBreakRef.current; // guarda ANTES del cambio
-          if (!enBreakRef.current) {
-            enBreakRef.current = true;
-            setEnBreak(true);
-            inicioTimestampRef.current = Date.now();
-            return TIEMPO_BREAK;
-          } else {
-            enBreakRef.current = false;
-            setEnBreak(false);
-            inicioTimestampRef.current = Date.now();
-            return TIEMPO_POMODORO;
-          }
-        }
-        return prev - 1;
-      });
+    corriendoRef.current = corriendo;
 
-      if (terminoCicloRef.current) {
-        terminoCicloRef.current = false;
-        reproducirSonido();
+    if (corriendo) {
+      activateKeepAwakeAsync('pomodoro').catch(() => {});
+      finRef.current = Date.now() + segundosRef.current * 1000;
+      (async () => {
+        await cancelarNotificaciones();
+        await programarNotificacionFin(finRef.current, enBreakRef.current ? 'break' : 'pomodoro');
+      })();
+      intervaloRef.current = setInterval(() => tickRef.current(), 500);
+    } else {
+      try { deactivateKeepAwake('pomodoro'); } catch (e) {}
+      clearInterval(intervaloRef.current);
+      cancelarNotificaciones();
+    }
 
-        if (!eraBreakRef.current) {
-          // ← usa eraBreakRef, no enBreakRef
-          // Terminó el Pomodoro de 25 min
-          completarPomodoro();
-          enviarNotificacion(
-            '🎉 ¡Pomodoro completado!',
-            '¡Excelente trabajo! Tómate un descanso de 5 minutos.'
-          );
-          
-        } else {
-          // Terminó el Break
-          enviarNotificacion(
-            '☕ ¡Break terminado!',
-            '¡Hora de concentrarse! Empieza tu siguiente Pomodoro.'
-          );
-          
-        }
-      }
-    }, 1000);
-  } else {
-    clearInterval(intervaloRef.current);
-  }
+    return () => clearInterval(intervaloRef.current);
+  }, [corriendo]);
 
-  return () => clearInterval(intervaloRef.current);
-}, [corriendo]);
-  
+  // Liberar la pantalla al salir de esta pantalla
+  useEffect(() => {
+    return () => {
+      try { deactivateKeepAwake('pomodoro'); } catch (e) {}
+    };
+  }, []);
 
   // AppState — detectar salida y regreso
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextAppState => {
+      const anterior = appStateRef.current;
+      appStateRef.current = nextAppState;
 
-      // App pasa a background (usuario cambió de app o presionó home)
-      // ⚠️ NO pausar en 'inactive' — eso solo es la pantalla apagándose
-      if (nextAppState === 'background') {
-        if (corriendoRef.current) {
-          segundosAlSalirRef.current = Date.now();
-          setCorriendo(false);
-          clearInterval(intervaloRef.current);
+      // Sale de la app (o se apaga la pantalla): el timer NO se pausa,
+      // solo anotamos la hora de salida.
+      if (anterior === 'active' && nextAppState !== 'active') {
+        if (corriendoRef.current && salidaRef.current === null) {
+          const restante = Math.max(1, Math.ceil((finRef.current - Date.now()) / 1000));
+          salidaRef.current = {
+            hora: Date.now(),
+            restante,
+            eraBreak: enBreakRef.current,
+          };
         }
+        return;
       }
 
-      // App regresa a foreground
-      if (nextAppState === 'active' && appStateRef.current !== 'active') {
-        if (segundosAlSalirRef.current !== null) {
-          const horaRegreso = Date.now();
-          const segundosFuera = Math.floor((horaRegreso - segundosAlSalirRef.current) / 1000);
+      // Regresa a la app
+      if (anterior !== 'active' && nextAppState === 'active') {
+        const salida = salidaRef.current;
+        salidaRef.current = null;
+        if (!salida || !corriendoRef.current) return;
+
+        const horaRegreso = Date.now();
+        const segundosFuera = Math.floor((horaRegreso - salida.hora) / 1000);
+
+        // Solo cuenta como interrupción si estuvo fuera más del umbral
+        // y estaba en un Pomodoro (el break puede usarse libremente).
+        if (!salida.eraBreak && segundosFuera >= UMBRAL_INTERRUPCION_SEG) {
           const minutosFuera = Math.floor(segundosFuera / 60);
           const segundosExtra = segundosFuera % 60;
-
           const tiempoFueraTexto = minutosFuera > 0
             ? `${minutosFuera} min ${segundosExtra} seg`
             : `${segundosExtra} seg`;
 
-          // Guardar interrupción en la base de datos
+          // Pausar y dejar el tiempo como estaba al salir
+          setCorriendo(false);
+          actualizarSegundos(salida.restante);
+
           if (usuarioRef.current) {
             guardarInterrupcion(
-              new Date(segundosAlSalirRef.current).toISOString(),
+              new Date(salida.hora).toISOString(),
               new Date(horaRegreso).toISOString(),
               segundosFuera
             );
           }
 
-          segundosAlSalirRef.current = null;
-
           setAlertInterrupcion({ visible: true, tiempoFuera: tiempoFueraTexto });
+        } else {
+          // Salida corta (bloqueo de pantalla): sincronizar el tiempo y seguir
+          tickRef.current();
         }
       }
-
-      appStateRef.current = nextAppState;
     });
 
     return () => subscription.remove();
@@ -231,25 +276,11 @@ export default function TimerScreen() {
   });
 
   const reproducirSonido = () => {
-  try {
-    sonidoPlayer.seekTo(0);
-    sonidoPlayer.play();
-  } catch (error) {
-    console.log('Error al reproducir sonido', error);
-  }
-  };
-
-  const enviarNotificacion = async (titulo, cuerpo) => {
-    if (!Notifications) {
-      return;
-    }
     try {
-      await Notifications.scheduleNotificationAsync({
-        content: { title: titulo, body: cuerpo, sound: true },
-        trigger: null,
-      });
+      sonidoPlayer.seekTo(0);
+      sonidoPlayer.play();
     } catch (error) {
-      console.log('Error al enviar notificación', error);
+      console.log('Error al reproducir sonido', error);
     }
   };
 
@@ -297,9 +328,9 @@ export default function TimerScreen() {
     setCorriendo(false);
     enBreakRef.current = false;
     setEnBreak(false);
-    setSegundos(TIEMPO_POMODORO);
-    inicioTimestampRef.current = null;
-    segundosAlSalirRef.current = null;
+    actualizarSegundos(TIEMPO_POMODORO);
+    salidaRef.current = null;
+    cancelarNotificaciones();
   };
 
   if (!fontsLoaded) return null;
