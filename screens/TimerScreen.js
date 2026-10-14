@@ -191,7 +191,7 @@ export default function TimerScreen() {
       await cancelarNotificaciones();
       // App abierta y fin a tiempo: avisamos al instante. Si retrasoSeg es grande,
       // la programada ya sonó mientras la app estaba en segundo plano.
-      if (retrasoSeg < 5) await mostrarNotificacionAhora(faseTerminada);
+      //if (retrasoSeg < 5) await mostrarNotificacionAhora(faseTerminada);
       // Programamos la de la fase que empieza
       await programarNotificacionFin(finRef.current, faseNueva);
     })();
