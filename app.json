@@ -21,7 +21,8 @@
         "backgroundColor": "#FF8C69"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.manuvva.PomoPet"
+      "package": "com.manuvva.PomoPet",
+      "permissions": ["SCHEDULE_EXACT_ALARM", "USE_EXACT_ALARM"]
     },
     "web": {
       "favicon": "./assets/favicon.png"

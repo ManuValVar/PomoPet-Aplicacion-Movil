@@ -54,20 +54,37 @@ const crearCanalAndroid = async () => {
   }
 };
 
+const contenidoNotificacion = (fase) => {
+  const esPomodoro = fase === 'pomodoro';
+  return {
+    title: esPomodoro ? '🎉 ¡Pomodoro completado!' : '☕ ¡Break terminado!',
+    body: esPomodoro
+      ? '¡Excelente trabajo! Tómate un descanso de 5 minutos.'
+      : '¡Hora de concentrarse! Empieza tu siguiente Pomodoro.',
+    sound: true,
+  };
+};
+
+// Notificación inmediata (se usa cuando la app está abierta al terminar la fase)
+const mostrarNotificacionAhora = async (fase) => {
+  if (!Notifications) return;
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: contenidoNotificacion(fase),
+      trigger: Platform.OS === 'android' ? { channelId: CANAL_ID } : null,
+    });
+  } catch (error) {
+    console.log('Error al mostrar notificación', error);
+  }
+};
+
 // Programa una notificación para la hora exacta en que termina la fase.
 // Suena aunque la pantalla esté apagada o la app suspendida.
 const programarNotificacionFin = async (fin, fase) => {
   if (!Notifications) return;
   try {
-    const esPomodoro = fase === 'pomodoro';
     await Notifications.scheduleNotificationAsync({
-      content: {
-        title: esPomodoro ? '🎉 ¡Pomodoro completado!' : '☕ ¡Break terminado!',
-        body: esPomodoro
-          ? '¡Excelente trabajo! Tómate un descanso de 5 minutos.'
-          : '¡Hora de concentrarse! Empieza tu siguiente Pomodoro.',
-        sound: true,
-      },
+      content: contenidoNotificacion(fase),
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes?.DATE ?? 'date',
         date: new Date(fin),
@@ -166,9 +183,18 @@ export default function TimerScreen() {
     finRef.current = Date.now() + duracion * 1000;
     actualizarSegundos(duracion);
 
-    // La notificación de la fase que acaba de terminar ya estaba programada.
-    // Programamos la de la fase que empieza.
-    programarNotificacionFin(finRef.current, ahoraEsBreak ? 'break' : 'pomodoro');
+    const faseTerminada = eraBreak ? 'break' : 'pomodoro';
+    const faseNueva = ahoraEsBreak ? 'break' : 'pomodoro';
+
+    (async () => {
+      // Cancelamos la notificación programada de la fase que terminó (podría llegar tarde)
+      await cancelarNotificaciones();
+      // App abierta y fin a tiempo: avisamos al instante. Si retrasoSeg es grande,
+      // la programada ya sonó mientras la app estaba en segundo plano.
+      if (retrasoSeg < 5) await mostrarNotificacionAhora(faseTerminada);
+      // Programamos la de la fase que empieza
+      await programarNotificacionFin(finRef.current, faseNueva);
+    })();
 
     if (retrasoSeg < 5) reproducirSonido();
     if (!eraBreak) completarRef.current();
